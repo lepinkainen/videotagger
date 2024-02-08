@@ -14,6 +14,8 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
+var Version = "dev"
+
 var debug = false
 
 // this matches the latter part as closely as possible, grabbing the three segments as groups
@@ -25,6 +27,8 @@ func isVideoFile(path string) bool {
 	var desiredExtensions = []string{".mp4", ".webm", ".mov", ".flv", ".mkv", ".avi", ".wmv", ".mpg"}
 
 	ext := filepath.Ext(path)
+	ext = strings.ToLower(ext) // handle cases where extension is upper case
+
 	for _, v := range desiredExtensions {
 		if v == ext {
 			return true
@@ -35,6 +39,7 @@ func isVideoFile(path string) bool {
 
 func main() {
 	if len(os.Args) < 2 {
+		fmt.Println("Version: " + Version)
 		fmt.Println("Please provide a file to process.")
 		os.Exit(1)
 	}
