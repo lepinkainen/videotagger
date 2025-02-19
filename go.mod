@@ -1,6 +1,6 @@
 module github.com/lepinkainen/videotagger
 
-go 1.21.4
+go 1.24
 
 require github.com/schollz/progressbar/v3 v3.14.1
 

@@ -30,3 +30,30 @@ tasks:
       - echo "Publishing to bin"
       - mkdir -p $HOME/bin/
       - mv {{.EXECUTABLE}} $HOME/bin/
+
+  lint:
+    desc: Run Go linters
+    cmds:
+      - golangci-lint run ./...
+    sources:
+      - ./**/*.go
+    silent: true
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.BUILDDIR}} {{.COVERAGE_DIR}}
+
+  upgrade-deps:
+    desc: Upgrade all dependencies to their latest versions
+    silent: true
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+      - echo "✅ Dependencies upgraded successfully"
+    sources:
+      - go.mod
+      - go.sum
+    generates:
+      - go.mod
+      - go.sum
