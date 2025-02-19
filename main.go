@@ -16,8 +16,6 @@ import (
 
 var Version = "dev"
 
-var debug = false
-
 // this matches the latter part as closely as possible, grabbing the three segments as groups
 // examplevideo_[1280x720][33min][996A868B].wmv
 var wasProcessedRegex = regexp.MustCompile(`_\[(\d+x\d+)\]\[(\d+)min\]\[([a-fA-F0-9]{8})\]\.[^\.]*$`)
@@ -37,93 +35,125 @@ func isVideoFile(path string) bool {
 	return false
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Version: " + Version)
-		fmt.Println("Please provide a file to process.")
-		os.Exit(1)
-	}
-	videoFile := os.Args[1]
-
-	fi, err := os.Stat(videoFile)
-	if err != nil {
-		fmt.Println("An error occurred: ", err)
-		os.Exit(1)
-	}
-	fileSize := fi.Size()
-
-	// Directory, skip
-	if fi.IsDir() {
-		fmt.Printf(videoFile + " is a directory.\n")
-		os.Exit(1)
-	}
-
-	// Not a video file, skip
-	if !isVideoFile(videoFile) {
-		//fmt.Printf(videoFile + " is not a video file.\n")
-		os.Exit(1)
-	}
-
-	if wasProcessedRegex.MatchString(videoFile) {
-		fmt.Printf(videoFile + " already processed.\n")
-		os.Exit(1)
-	}
-
-	bar := progressbar.DefaultBytes(fileSize)
-	bar.Describe(videoFile)
-
-	// Get resolution
-	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", "--", videoFile)
+// getVideoResolution extracts the video resolution using ffprobe
+func getVideoResolution(videoFile string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", "--", videoFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Println("An error occurred: ", err)
+		// Get the actual error message from ffprobe
+		return "", fmt.Errorf("failed to get resolution: %w\nffprobe output: %s", err, string(output))
 	}
 
-	// in some cases the command prints <resolution>\n\n<resolution>, fix it here
+	// Fix cases where command prints multiple resolutions
 	outputParts := strings.SplitN(string(output), "\n", 2)
-	firstPart := outputParts[0]
-
-	// Extract the resolution and build a new filename
-	resolution := strings.TrimSpace(string(firstPart))
-	// sometimes the system will return a resolution like 1280x720x - remove the trailing x
+	resolution := strings.TrimSpace(outputParts[0])
 	resolution = strings.TrimSuffix(resolution, "x")
 
-	ext := filepath.Ext(videoFile)
-
-	// Get duration
-	cmd = exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoFile)
-	output, err = cmd.Output()
-	if err != nil {
-		fmt.Println("An error occurred when getting duration: ", err)
+	// Validate resolution format
+	if !regexp.MustCompile(`^\d+x\d+$`).MatchString(resolution) {
+		return "", fmt.Errorf("invalid resolution format: %s", resolution)
 	}
 
-	durationSecs, _ := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	durationMins := durationSecs / 60
+	return resolution, nil
+}
 
-	// Open the file to calculate CRC32
-	f, err := os.Open(videoFile)
+// getVideoDuration extracts the video duration using ffprobe
+func getVideoDuration(videoFile string) (float64, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries",
+		"format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoFile)
+	output, err := cmd.Output()
 	if err != nil {
-		fmt.Println("Error opening file for CRC calculation: ", err)
+		return 0, fmt.Errorf("failed to get duration: %w", err)
+	}
+
+	durationSecs, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse duration: %w", err)
+	}
+
+	return durationSecs / 60, nil
+}
+
+func main() {
+	fmt.Printf("Video Tagger %s\n", Version)
+
+	if len(os.Args) < 2 {
+		fmt.Printf("Version: %s\nUsage: %s <video-file(s)>\n", Version, filepath.Base(os.Args[0]))
 		os.Exit(1)
 	}
-	defer f.Close()
 
-	h := crc32.NewIEEE()
-	if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
-		fmt.Println("Error calculating CRC: ", err)
-		os.Exit(1)
+	fmt.Printf("Processing %d files:\n", len(os.Args)-1)
+
+	for _, videoFile := range os.Args[1:] {
+		//fmt.Printf("\nStarting to process: %s\n", videoFile)
+
+		fi, err := os.Stat(videoFile)
+		if err != nil {
+			fmt.Printf("❌ Error processing %s: %v\n", videoFile, err)
+			continue
+		}
+
+		// Directory, skip
+		if fi.IsDir() {
+			fmt.Printf("%s is a directory.\n", videoFile)
+			continue
+		}
+
+		// Not a video file, skip
+		if !isVideoFile(videoFile) {
+			fmt.Printf("%s is not a video file, skipping\n", videoFile)
+			continue
+		}
+
+		if wasProcessedRegex.MatchString(videoFile) {
+			//fmt.Printf("%s already processed.\n", videoFile)
+			continue
+		}
+
+		fileSize := fi.Size()
+		bar := progressbar.DefaultBytes(fileSize)
+		bar.Describe(videoFile)
+
+		resolution, err := getVideoResolution(videoFile)
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			continue
+		}
+
+		durationMins, err := getVideoDuration(videoFile)
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			continue
+		}
+
+		// Open the file to calculate CRC32
+		f, err := os.Open(videoFile)
+		if err != nil {
+			fmt.Printf("❌ Error opening file for CRC calculation: %v\n", err)
+			continue
+		}
+
+		h := crc32.NewIEEE()
+		if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
+			f.Close()
+			fmt.Printf("❌ Error calculating CRC: %v\n", err)
+			continue
+		}
+		f.Close()
+		crc := h.Sum32()
+
+		ext := filepath.Ext(videoFile)
+		newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
+
+		bar.Finish()
+
+		// Rename the file
+		if err := os.Rename(videoFile, newFilename); err != nil {
+			fmt.Printf("❌ Error renaming file: %v\n", err)
+		} else {
+			fmt.Printf("✅ %s\n", newFilename)
+		}
 	}
-	crc := h.Sum32()
-
-	//newFilename := fmt.Sprintf("%s_[%s]%s", videoFile[0:len(videoFile)-len(ext)], resolution, ext)
-	newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
-
-	bar.Finish()
-
-	// Rename the file
-	if err := os.Rename(videoFile, newFilename); err != nil {
-		fmt.Println("Error renaming file: ", err)
-	} else {
-		fmt.Printf("-> %s\n", newFilename)
-	}
+	fmt.Printf("\n✅ Processing complete.\n")
 }

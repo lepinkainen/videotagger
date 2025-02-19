@@ -10,14 +10,21 @@ tasks:
   build:
     deps: [vet]
     cmds:
-      - go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.EXECUTABLE}} main.go
+      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.EXECUTABLE}} main.go
     sources:
       - ./*.go
     generates:
       - "{{.EXECUTABLE}}"
     vars:
-      GIT_COMMIT:
-        sh: git log -n 1 --format=%h
+      VERSION:
+        sh: |
+          tag=$(git describe --tags 2>/dev/null || echo "dev")
+          commit=$(git log -n 1 --format=%h)
+          if [ "$tag" = "dev" ]; then
+            echo "dev-$commit"
+          else
+            echo "$tag-$commit"
+          fi
 
   vet:
     cmds:
