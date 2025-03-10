@@ -133,14 +133,13 @@ func main() {
 			fmt.Printf("❌ Error opening file for CRC calculation: %v\n", err)
 			continue
 		}
+		defer f.Close()
 
 		h := crc32.NewIEEE()
 		if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
-			f.Close()
 			fmt.Printf("❌ Error calculating CRC: %v\n", err)
 			continue
 		}
-		f.Close()
 		crc := h.Sum32()
 
 		ext := filepath.Ext(videoFile)
