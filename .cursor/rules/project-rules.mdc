@@ -1,0 +1,19 @@
+---
+description: project language and style
+globs: 
+alwaysApply: true
+---
+# Project Rules
+
+## Core Guidelines
+
+- **Language:** Go only (no Python or other languages)
+- **Build System:** Use Taskfile
+- **Unit Tests:** Write basic unit tests for new functionality. Always check the tests pass after finishing changes.
+- **Purpose:** See README.md for project definition
+
+## Implementation Requirements
+
+- Maintain consistent Go style and idiomatic patterns
+- Follow the existing architectural patterns
+- Each data source processor should be implemented as a separate command
