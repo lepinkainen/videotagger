@@ -5,16 +5,17 @@ dotenv: [".env"]
 
 vars:
   EXECUTABLE: videotagger
+  BUILDDIR: build
 
 tasks:
   build:
-    deps: [vet]
+    deps: [test, lint]
     cmds:
-      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.EXECUTABLE}} main.go
+      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}} main.go
     sources:
       - ./*.go
     generates:
-      - "{{.EXECUTABLE}}"
+      - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
     vars:
       VERSION:
         sh: |
@@ -26,17 +27,68 @@ tasks:
             echo "$tag-$commit"
           fi
 
+  build-linux:
+    deps: [test, lint]
+    cmds:
+      - GOOS=linux GOARCH=amd64 go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}}-linux main.go
+    sources:
+      - ./*.go
+    generates:
+      - "{{.BUILDDIR}}/{{.EXECUTABLE}}-linux"
+    vars:
+      VERSION:
+        sh: |
+          tag=$(git describe --tags 2>/dev/null || echo "dev")
+          commit=$(git log -n 1 --format=%h)
+          if [ "$tag" = "dev" ]; then
+            echo "dev-$commit"
+          else
+            echo "$tag-$commit"
+          fi
+
+  build-ci:
+    deps: [test-ci, lint]
+    cmds:
+      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}} main.go
+    sources:
+      - ./*.go
+    generates:
+      - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
+    vars:
+      VERSION:
+        sh: |
+          tag=$(git describe --tags 2>/dev/null || echo "dev")
+          commit=$(git log -n 1 --format=%h)
+          if [ "$tag" = "dev" ]; then
+            echo "dev-$commit"
+          else
+            echo "$tag-$commit"
+          fi
+
+  test:
+    cmds:
+      - go test -v ./...
+    sources:
+      - ./*.go
+
+  test-ci:
+    cmds:
+      - go test -tags=ci -cover -v ./...
+    sources:
+      - ./*.go
+
   vet:
     cmds:
       - go vet ./...
     sources:
       - ./*.go
+
   publish:
     deps: [build]
     cmds:
       - echo "Publishing to bin"
       - mkdir -p $HOME/bin/
-      - mv {{.EXECUTABLE}} $HOME/bin/
+      - cp {{.BUILDDIR}}/{{.EXECUTABLE}} $HOME/bin/
 
   lint:
     desc: Run Go linters
@@ -49,7 +101,7 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf {{.BUILDDIR}} {{.COVERAGE_DIR}}
+      - rm -rf {{.BUILDDIR}}
 
   upgrade-deps:
     desc: Upgrade all dependencies to their latest versions
