@@ -3,14 +3,17 @@ package main
 import (
 	"fmt"
 	"hash/crc32"
+	"image"
 	_ "image/jpeg"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/alecthomas/kong"
 	"github.com/corona10/goimagehash"
@@ -27,7 +30,8 @@ type CLI struct {
 }
 
 type TagCmd struct {
-	Files []string `arg:"" name:"files" help:"Video files to process" type:"existingfile"`
+	Files   []string `arg:"" name:"files" help:"Video files to process" type:"existingfile"`
+	Workers int      `help:"Number of parallel workers" default:"0"`
 }
 
 type DuplicatesCmd struct {
@@ -119,13 +123,12 @@ func calculateVideoPerceptualHash(videoFile string) (*goimagehash.ImageHash, err
 
 	// Extract frame at 30% through the video
 	cmd := exec.Command("ffmpeg", "-i", videoFile, "-ss", "00:00:30", "-vframes", "1", "-f", "image2", "-y", tempFrame)
-	output, err := cmd.CombinedOutput()
+	err := cmd.Run()
 	if err != nil {
 		// Try extracting at 10 seconds if percentage fails
 		cmd = exec.Command("ffmpeg", "-i", videoFile, "-ss", "10", "-vframes", "1", "-f", "image2", "-y", tempFrame)
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract frame: %w\\nffmpeg output: %s", err, string(output))
+		if err = cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to extract frame: %w", err)
 		}
 	}
 
@@ -136,7 +139,12 @@ func calculateVideoPerceptualHash(videoFile string) (*goimagehash.ImageHash, err
 	}
 	defer file.Close()
 
-	hash, err := goimagehash.PerceptionHash(file)
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image: %w", err)
+	}
+
+	hash, err := goimagehash.PerceptionHash(img)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate perceptual hash: %w", err)
 	}
@@ -203,77 +211,113 @@ func (cmd *TagCmd) Run() error {
 	fmt.Printf("Video Tagger %s\n", Version)
 	fmt.Printf("Processing %d files:\n", len(cmd.Files))
 
-	for _, videoFile := range cmd.Files {
-		//fmt.Printf("\nStarting to process: %s\n", videoFile)
-
-		fi, err := os.Stat(videoFile)
-		if err != nil {
-			fmt.Printf("❌ Error processing %s: %v\n", videoFile, err)
-			continue
-		}
-
-		// Directory, skip
-		if fi.IsDir() {
-			fmt.Printf("%s is a directory.\n", videoFile)
-			continue
-		}
-
-		// Not a video file, skip
-		if !isVideoFile(videoFile) {
-			fmt.Printf("%s is not a video file, skipping\n", videoFile)
-			continue
-		}
-
-		if wasProcessedRegex.MatchString(videoFile) {
-			//fmt.Printf("%s already processed.\n", videoFile)
-			continue
-		}
-
-		fileSize := fi.Size()
-		bar := progressbar.DefaultBytes(fileSize)
-		bar.Describe(videoFile)
-
-		resolution, err := getVideoResolution(videoFile)
-		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
-			continue
-		}
-
-		durationMins, err := getVideoDuration(videoFile)
-		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
-			continue
-		}
-
-		// Open the file to calculate CRC32
-		f, err := os.Open(videoFile)
-		if err != nil {
-			fmt.Printf("❌ Error opening file for CRC calculation: %v\n", err)
-			continue
-		}
-		defer f.Close()
-
-		h := crc32.NewIEEE()
-		if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
-			fmt.Printf("❌ Error calculating CRC: %v\n", err)
-			continue
-		}
-		crc := h.Sum32()
-
-		ext := filepath.Ext(videoFile)
-		newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
-
-		_ = bar.Finish()
-
-		// Rename the file
-		if err := os.Rename(videoFile, newFilename); err != nil {
-			fmt.Printf("❌ Error renaming file: %v\n", err)
-		} else {
-			fmt.Printf("✅ %s\n", newFilename)
-		}
+	// Set default worker count to number of CPUs
+	workers := cmd.Workers
+	if workers <= 0 {
+		workers = runtime.NumCPU()
 	}
+
+	// If only one file or one worker, process sequentially
+	if len(cmd.Files) == 1 || workers == 1 {
+		for _, videoFile := range cmd.Files {
+			processVideoFile(videoFile)
+		}
+	} else {
+		// Process files in parallel
+		jobs := make(chan string, len(cmd.Files))
+		var wg sync.WaitGroup
+
+		// Start workers
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for videoFile := range jobs {
+					processVideoFile(videoFile)
+				}
+			}()
+		}
+
+		// Send jobs
+		for _, videoFile := range cmd.Files {
+			jobs <- videoFile
+		}
+		close(jobs)
+
+		// Wait for completion
+		wg.Wait()
+	}
+
 	fmt.Printf("\n✅ Processing complete.\n")
 	return nil
+}
+
+// processVideoFile handles the processing of a single video file
+func processVideoFile(videoFile string) {
+	fi, err := os.Stat(videoFile)
+	if err != nil {
+		fmt.Printf("❌ Error processing %s: %v\n", videoFile, err)
+		return
+	}
+
+	// Directory, skip
+	if fi.IsDir() {
+		fmt.Printf("%s is a directory.\n", videoFile)
+		return
+	}
+
+	// Not a video file, skip
+	if !isVideoFile(videoFile) {
+		fmt.Printf("%s is not a video file, skipping\n", videoFile)
+		return
+	}
+
+	if wasProcessedRegex.MatchString(videoFile) {
+		return
+	}
+
+	fileSize := fi.Size()
+	bar := progressbar.DefaultBytes(fileSize)
+	bar.Describe(videoFile)
+
+	resolution, err := getVideoResolution(videoFile)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	durationMins, err := getVideoDuration(videoFile)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Open the file to calculate CRC32
+	f, err := os.Open(videoFile)
+	if err != nil {
+		fmt.Printf("❌ Error opening file for CRC calculation: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	h := crc32.NewIEEE()
+	if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
+		fmt.Printf("❌ Error calculating CRC: %v\n", err)
+		return
+	}
+	crc := h.Sum32()
+
+	ext := filepath.Ext(videoFile)
+	newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
+
+	_ = bar.Finish()
+
+	// Rename the file
+	if err := os.Rename(videoFile, newFilename); err != nil {
+		fmt.Printf("❌ Error renaming file: %v\n", err)
+	} else {
+		fmt.Printf("✅ %s\n", newFilename)
+	}
 }
 
 func (cmd *DuplicatesCmd) Run() error {
