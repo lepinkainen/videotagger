@@ -16,11 +16,37 @@ import (
 	"sync"
 
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/corona10/goimagehash"
 	"github.com/schollz/progressbar/v3"
 )
 
 var Version = "dev"
+
+// Styling functions using lipgloss
+var (
+	headerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("86")).
+			Background(lipgloss.Color("235")).
+			Bold(true).
+			Padding(0, 2).
+			MarginBottom(1)
+
+	successStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("46")).
+			Bold(true)
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+
+	infoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("33"))
+
+	processingStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			Bold(true)
+)
 
 type CLI struct {
 	Tag        TagCmd        `cmd:"" help:"Tag video files with metadata and hash"`
@@ -208,8 +234,8 @@ func getVideoDuration(videoFile string) (float64, error) {
 }
 
 func (cmd *TagCmd) Run() error {
-	fmt.Printf("Video Tagger %s\n", Version)
-	fmt.Printf("Processing %d files:\n", len(cmd.Files))
+	fmt.Println(headerStyle.Render(fmt.Sprintf("Video Tagger %s", Version)))
+	fmt.Println(processingStyle.Render(fmt.Sprintf("Processing %d files:", len(cmd.Files))))
 
 	// Set default worker count to number of CPUs
 	workers := cmd.Workers
@@ -248,7 +274,7 @@ func (cmd *TagCmd) Run() error {
 		wg.Wait()
 	}
 
-	fmt.Printf("\n✅ Processing complete.\n")
+	fmt.Printf("\n%s\n", successStyle.Render("✅ Processing complete."))
 	return nil
 }
 
@@ -256,7 +282,7 @@ func (cmd *TagCmd) Run() error {
 func processVideoFile(videoFile string) {
 	fi, err := os.Stat(videoFile)
 	if err != nil {
-		fmt.Printf("❌ Error processing %s: %v\n", videoFile, err)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error processing %s: %v", videoFile, err)))
 		return
 	}
 
@@ -282,27 +308,27 @@ func processVideoFile(videoFile string) {
 
 	resolution, err := getVideoResolution(videoFile)
 	if err != nil {
-		fmt.Printf("❌ Error: %v\n", err)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
 		return
 	}
 
 	durationMins, err := getVideoDuration(videoFile)
 	if err != nil {
-		fmt.Printf("❌ Error: %v\n", err)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
 		return
 	}
 
 	// Open the file to calculate CRC32
 	f, err := os.Open(videoFile)
 	if err != nil {
-		fmt.Printf("❌ Error opening file for CRC calculation: %v\n", err)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error opening file for CRC calculation: %v", err)))
 		return
 	}
 	defer f.Close()
 
 	h := crc32.NewIEEE()
 	if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
-		fmt.Printf("❌ Error calculating CRC: %v\n", err)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating CRC: %v", err)))
 		return
 	}
 	crc := h.Sum32()
@@ -314,9 +340,9 @@ func processVideoFile(videoFile string) {
 
 	// Rename the file
 	if err := os.Rename(videoFile, newFilename); err != nil {
-		fmt.Printf("❌ Error renaming file: %v\n", err)
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error renaming file: %v", err)))
 	} else {
-		fmt.Printf("✅ %s\n", newFilename)
+		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", newFilename)))
 	}
 }
 
@@ -329,11 +355,11 @@ func (cmd *DuplicatesCmd) Run() error {
 	}
 
 	if len(duplicates) == 0 {
-		fmt.Println("✅ No duplicates found")
+		fmt.Printf("%s\n", successStyle.Render("✅ No duplicates found"))
 		return nil
 	}
 
-	fmt.Printf("Found %d groups of duplicates:\n", len(duplicates))
+	fmt.Printf("%s\n", infoStyle.Render(fmt.Sprintf("Found %d groups of duplicates:", len(duplicates))))
 	for hash, files := range duplicates {
 		fmt.Printf("\nHash %s:\n", hash)
 		for _, file := range files {
@@ -346,11 +372,11 @@ func (cmd *DuplicatesCmd) Run() error {
 
 func (cmd *PhashCmd) Run() error {
 	if len(cmd.Files) < 2 {
-		fmt.Println("❌ Need at least 2 files to compare")
+		fmt.Printf("%s\n", errorStyle.Render("❌ Need at least 2 files to compare"))
 		return nil
 	}
 
-	fmt.Printf("Calculating perceptual hashes for %d files...\n", len(cmd.Files))
+	fmt.Printf("%s\n", infoStyle.Render(fmt.Sprintf("Calculating perceptual hashes for %d files...", len(cmd.Files))))
 
 	type FileHash struct {
 		File string
@@ -367,22 +393,22 @@ func (cmd *PhashCmd) Run() error {
 
 		hash, err := calculateVideoPerceptualHash(videoFile)
 		if err != nil {
-			fmt.Printf("❌ Error calculating perceptual hash for %s: %v\n", videoFile, err)
+			fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating perceptual hash for %s: %v", videoFile, err)))
 			continue
 		}
 
 		fileHashes = append(fileHashes, FileHash{File: videoFile, Hash: hash})
-		fmt.Printf("✅ Processed %s\n", videoFile)
+		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ Processed %s", videoFile)))
 	}
 
-	fmt.Printf("\nComparing %d files for similarity (threshold: %d):\n", len(fileHashes), cmd.Threshold)
+	fmt.Printf("\n%s\n", infoStyle.Render(fmt.Sprintf("Comparing %d files for similarity (threshold: %d):", len(fileHashes), cmd.Threshold)))
 
 	found := false
 	for i := 0; i < len(fileHashes); i++ {
 		for j := i + 1; j < len(fileHashes); j++ {
 			distance, err := fileHashes[i].Hash.Distance(fileHashes[j].Hash)
 			if err != nil {
-				fmt.Printf("❌ Error comparing %s and %s: %v\n", fileHashes[i].File, fileHashes[j].File, err)
+				fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error comparing %s and %s: %v", fileHashes[i].File, fileHashes[j].File, err)))
 				continue
 			}
 
@@ -394,14 +420,14 @@ func (cmd *PhashCmd) Run() error {
 	}
 
 	if !found {
-		fmt.Println("✅ No similar files found within threshold")
+		fmt.Printf("%s\n", successStyle.Render("✅ No similar files found within threshold"))
 	}
 
 	return nil
 }
 
 func (cmd *VerifyCmd) Run() error {
-	fmt.Printf("Verifying %d files...\n", len(cmd.Files))
+	fmt.Printf("%s\n", infoStyle.Render(fmt.Sprintf("Verifying %d files...", len(cmd.Files))))
 
 	var verified, failed int
 
@@ -419,21 +445,21 @@ func (cmd *VerifyCmd) Run() error {
 
 		actualHash, err := calculateCRC32(videoFile)
 		if err != nil {
-			fmt.Printf("❌ Error calculating hash for %s: %v\n", videoFile, err)
+			fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating hash for %s: %v", videoFile, err)))
 			failed++
 			continue
 		}
 
 		if strings.EqualFold(expectedHash, fmt.Sprintf("%08X", actualHash)) {
-			fmt.Printf("✅ %s\n", videoFile)
+			fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", videoFile)))
 			verified++
 		} else {
-			fmt.Printf("❌ %s (expected: %s, got: %08X)\n", videoFile, expectedHash, actualHash)
+			fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ %s (expected: %s, got: %08X)", videoFile, expectedHash, actualHash)))
 			failed++
 		}
 	}
 
-	fmt.Printf("\n✅ Verified: %d, ❌ Failed: %d\n", verified, failed)
+	fmt.Printf("\n%s\n", infoStyle.Render(fmt.Sprintf("✅ Verified: %d, ❌ Failed: %d", verified, failed)))
 	return nil
 }
 
