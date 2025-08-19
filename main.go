@@ -2,19 +2,11 @@ package main
 
 import (
 	"fmt"
-	"hash/crc32"
-	"image"
 	_ "image/jpeg"
-	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/bubbles/list"
@@ -22,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/corona10/goimagehash"
+	"github.com/lepinkainen/videotagger/video"
 )
 
 var Version = "dev"
@@ -250,38 +243,7 @@ func (m TUIModel) View() string {
 	return strings.Join(sections, "\n\n")
 }
 
-// progressWriter wraps progress bar for io.Writer interface
-type progressWriter struct {
-	total   int64
-	current int64
-	prog    progress.Model
-	done    chan bool
-}
-
-func (pw *progressWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	pw.current += int64(n)
-	return n, nil
-}
-
-func (pw *progressWriter) render() {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-pw.done:
-			// Final render at 100%
-			fmt.Printf("\r%s", pw.prog.ViewAs(1.0))
-			return
-		case <-ticker.C:
-			if pw.current > 0 {
-				percent := float64(pw.current) / float64(pw.total)
-				fmt.Printf("\r%s", pw.prog.ViewAs(percent))
-			}
-		}
-	}
-}
+// Progress bar functionality moved to video package
 
 // Styling functions using lipgloss
 var (
@@ -333,165 +295,13 @@ type PhashCmd struct {
 	Threshold int      `help:"Hamming distance threshold for similarity (0-64)" default:"10"`
 }
 
-// this matches the latter part as closely as possible, grabbing the three segments as groups
-// examplevideo_[1280x720][33min][996A868B].wmv
-var wasProcessedRegex = regexp.MustCompile(`_\[(\d+x\d+)\]\[(\d+)min\]\[([a-fA-F0-9]{8})\]\.[^\.]*$`)
+// Video processing functions moved to video package
 
-// extractHashFromFilename extracts the CRC32 hash from a processed filename
-func extractHashFromFilename(filename string) (string, bool) {
-	matches := wasProcessedRegex.FindStringSubmatch(filename)
-	if len(matches) != 4 {
-		return "", false
-	}
-	return matches[3], true // Return the hash (3rd capture group)
-}
+// Moved to video package
 
-// findDuplicatesByHash scans a directory for video files and groups them by hash
-func findDuplicatesByHash(directory string) (map[string][]string, error) {
-	hashToFiles := make(map[string][]string)
+// Moved to video package
 
-	err := filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		if !isVideoFile(path) {
-			return nil
-		}
-
-		if hash, ok := extractHashFromFilename(filepath.Base(path)); ok {
-			hashToFiles[hash] = append(hashToFiles[hash], path)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter out hashes with only one file (not duplicates)
-	duplicates := make(map[string][]string)
-	for hash, files := range hashToFiles {
-		if len(files) > 1 {
-			duplicates[hash] = files
-		}
-	}
-
-	return duplicates, nil
-}
-
-// calculateCRC32 calculates the CRC32 hash of a file
-func calculateCRC32(filename string) (uint32, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	h := crc32.NewIEEE()
-	if _, err := io.Copy(h, f); err != nil {
-		return 0, err
-	}
-
-	return h.Sum32(), nil
-}
-
-// calculateVideoPerceptualHash extracts a frame from video and calculates perceptual hash
-func calculateVideoPerceptualHash(videoFile string) (*goimagehash.ImageHash, error) {
-	// Create temporary file for extracted frame
-	tempFrame := filepath.Join(os.TempDir(), fmt.Sprintf("frame_%d.jpg", os.Getpid()))
-	defer os.Remove(tempFrame)
-
-	// Extract frame at 30% through the video
-	cmd := exec.Command("ffmpeg", "-i", videoFile, "-ss", "00:00:30", "-vframes", "1", "-f", "image2", "-y", tempFrame)
-	err := cmd.Run()
-	if err != nil {
-		// Try extracting at 10 seconds if percentage fails
-		cmd = exec.Command("ffmpeg", "-i", videoFile, "-ss", "10", "-vframes", "1", "-f", "image2", "-y", tempFrame)
-		if err = cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to extract frame: %w", err)
-		}
-	}
-
-	// Calculate perceptual hash of extracted frame
-	file, err := os.Open(tempFrame)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open extracted frame: %w", err)
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode image: %w", err)
-	}
-
-	hash, err := goimagehash.PerceptionHash(img)
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate perceptual hash: %w", err)
-	}
-
-	return hash, nil
-}
-
-// isVideoFile checks if the given file extension is one of knovideo file extensions.
-func isVideoFile(path string) bool {
-	var desiredExtensions = []string{".mp4", ".webm", ".mov", ".flv", ".mkv", ".avi", ".wmv", ".mpg"}
-
-	ext := filepath.Ext(path)
-	ext = strings.ToLower(ext) // handle cases where extension is upper case
-
-	for _, v := range desiredExtensions {
-		if v == ext {
-			return true
-		}
-	}
-	return false
-}
-
-// getVideoResolution extracts the video resolution using ffprobe
-func getVideoResolution(videoFile string) (string, error) {
-	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", "--", videoFile)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Get the actual error message from ffprobe
-		return "", fmt.Errorf("failed to get resolution: %w\nffprobe output: %s", err, string(output))
-	}
-
-	// Fix cases where command prints multiple resolutions
-	outputParts := strings.SplitN(string(output), "\n", 2)
-	resolution := strings.TrimSpace(outputParts[0])
-	resolution = strings.TrimSuffix(resolution, "x")
-
-	// Validate resolution format
-	if !regexp.MustCompile(`^\d+x\d+$`).MatchString(resolution) {
-		return "", fmt.Errorf("invalid resolution format: %s", resolution)
-	}
-
-	return resolution, nil
-}
-
-// getVideoDuration extracts the video duration using ffprobe
-func getVideoDuration(videoFile string) (float64, error) {
-	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries",
-		"format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoFile)
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get duration: %w", err)
-	}
-
-	durationSecs, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse duration: %w", err)
-	}
-
-	return durationSecs / 60, nil
-}
+// All video processing functions moved to video package
 
 func (cmd *TagCmd) Run() error {
 	// Set default worker count to number of CPUs
@@ -510,7 +320,7 @@ func (cmd *TagCmd) Run() error {
 	fmt.Println(processingStyle.Render(fmt.Sprintf("Processing %d files:", len(cmd.Files))))
 
 	for _, videoFile := range cmd.Files {
-		processVideoFile(videoFile)
+		video.ProcessVideoFile(videoFile)
 	}
 
 	fmt.Printf("\n%s\n", successStyle.Render("✅ Processing complete."))
@@ -535,7 +345,7 @@ func (cmd *TagCmd) runWithTUI(workers int) error {
 			defer wg.Done()
 			for videoFile := range jobs {
 				fmt.Printf("Worker %d: Processing %s\n", workerID+1, videoFile)
-				processVideoFile(videoFile)
+				video.ProcessVideoFile(videoFile)
 			}
 		}(i)
 	}
@@ -557,89 +367,12 @@ func (cmd *TagCmd) runWithTUI(workers int) error {
 
 // TODO: Complete full TUI implementation in future iterations
 
-// processVideoFile handles the processing of a single video file
-func processVideoFile(videoFile string) {
-	fi, err := os.Stat(videoFile)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error processing %s: %v", videoFile, err)))
-		return
-	}
-
-	// Directory, skip
-	if fi.IsDir() {
-		fmt.Printf("%s is a directory.\n", videoFile)
-		return
-	}
-
-	// Not a video file, skip
-	if !isVideoFile(videoFile) {
-		fmt.Printf("%s is not a video file, skipping\n", videoFile)
-		return
-	}
-
-	if wasProcessedRegex.MatchString(videoFile) {
-		return
-	}
-
-	fileSize := fi.Size()
-
-	// Create a custom progress bar with lipgloss styling
-	prog := progress.New(progress.WithDefaultGradient())
-	fmt.Printf("%s\n", processingStyle.Render(fmt.Sprintf("📊 Processing: %s", videoFile)))
-
-	// Create a progress writer
-	progressWriter := &progressWriter{
-		total: fileSize,
-		prog:  prog,
-		done:  make(chan bool),
-	}
-	go progressWriter.render()
-
-	resolution, err := getVideoResolution(videoFile)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
-		return
-	}
-
-	durationMins, err := getVideoDuration(videoFile)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
-		return
-	}
-
-	// Open the file to calculate CRC32
-	f, err := os.Open(videoFile)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error opening file for CRC calculation: %v", err)))
-		return
-	}
-	defer f.Close()
-
-	h := crc32.NewIEEE()
-	if _, err := io.Copy(io.MultiWriter(h, progressWriter), f); err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating CRC: %v", err)))
-		return
-	}
-	crc := h.Sum32()
-
-	ext := filepath.Ext(videoFile)
-	newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
-
-	progressWriter.done <- true
-	fmt.Printf("\n")
-
-	// Rename the file
-	if err := os.Rename(videoFile, newFilename); err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error renaming file: %v", err)))
-	} else {
-		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", newFilename)))
-	}
-}
+// processVideoFile moved to video.ProcessVideoFile
 
 func (cmd *DuplicatesCmd) Run() error {
 	fmt.Printf("Scanning %s for duplicates...\n", cmd.Directory)
 
-	duplicates, err := findDuplicatesByHash(cmd.Directory)
+	duplicates, err := video.FindDuplicatesByHash(cmd.Directory)
 	if err != nil {
 		return fmt.Errorf("failed to find duplicates: %w", err)
 	}
@@ -676,12 +409,12 @@ func (cmd *PhashCmd) Run() error {
 	var fileHashes []FileHash
 
 	for _, videoFile := range cmd.Files {
-		if !isVideoFile(videoFile) {
+		if !video.IsVideoFile(videoFile) {
 			fmt.Printf("⚠️  %s is not a video file, skipping\n", videoFile)
 			continue
 		}
 
-		hash, err := calculateVideoPerceptualHash(videoFile)
+		hash, err := video.CalculateVideoPerceptualHash(videoFile)
 		if err != nil {
 			fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating perceptual hash for %s: %v", videoFile, err)))
 			continue
@@ -722,18 +455,18 @@ func (cmd *VerifyCmd) Run() error {
 	var verified, failed int
 
 	for _, videoFile := range cmd.Files {
-		if !isVideoFile(videoFile) {
+		if !video.IsVideoFile(videoFile) {
 			fmt.Printf("⚠️  %s is not a video file, skipping\n", videoFile)
 			continue
 		}
 
-		expectedHash, ok := extractHashFromFilename(filepath.Base(videoFile))
+		expectedHash, ok := video.ExtractHashFromFilename(filepath.Base(videoFile))
 		if !ok {
 			fmt.Printf("⚠️  %s has not been processed (no hash in filename)\n", videoFile)
 			continue
 		}
 
-		actualHash, err := calculateCRC32(videoFile)
+		actualHash, err := video.CalculateCRC32(videoFile)
 		if err != nil {
 			fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating hash for %s: %v", videoFile, err)))
 			failed++
