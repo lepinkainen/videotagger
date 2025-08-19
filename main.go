@@ -14,14 +14,48 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/corona10/goimagehash"
-	"github.com/schollz/progressbar/v3"
 )
 
 var Version = "dev"
+
+// progressWriter wraps progress bar for io.Writer interface
+type progressWriter struct {
+	total   int64
+	current int64
+	prog    progress.Model
+	done    chan bool
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	pw.current += int64(n)
+	return n, nil
+}
+
+func (pw *progressWriter) render() {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pw.done:
+			// Final render at 100%
+			fmt.Printf("\r%s", pw.prog.ViewAs(1.0))
+			return
+		case <-ticker.C:
+			if pw.current > 0 {
+				percent := float64(pw.current) / float64(pw.total)
+				fmt.Printf("\r%s", pw.prog.ViewAs(percent))
+			}
+		}
+	}
+}
 
 // Styling functions using lipgloss
 var (
@@ -56,7 +90,7 @@ type CLI struct {
 }
 
 type TagCmd struct {
-	Files   []string `arg:"" name:"files" help:"Video files to process" type:"existingfile"`
+	Files   []string `arg:"" name:"files" help:"Video files to process" type:"path"`
 	Workers int      `help:"Number of parallel workers" default:"0"`
 }
 
@@ -303,8 +337,18 @@ func processVideoFile(videoFile string) {
 	}
 
 	fileSize := fi.Size()
-	bar := progressbar.DefaultBytes(fileSize)
-	bar.Describe(videoFile)
+
+	// Create a custom progress bar with lipgloss styling
+	prog := progress.New(progress.WithDefaultGradient())
+	fmt.Printf("%s\n", processingStyle.Render(fmt.Sprintf("📊 Processing: %s", videoFile)))
+
+	// Create a progress writer
+	progressWriter := &progressWriter{
+		total: fileSize,
+		prog:  prog,
+		done:  make(chan bool),
+	}
+	go progressWriter.render()
 
 	resolution, err := getVideoResolution(videoFile)
 	if err != nil {
@@ -327,7 +371,7 @@ func processVideoFile(videoFile string) {
 	defer f.Close()
 
 	h := crc32.NewIEEE()
-	if _, err := io.Copy(io.MultiWriter(h, bar), f); err != nil {
+	if _, err := io.Copy(io.MultiWriter(h, progressWriter), f); err != nil {
 		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating CRC: %v", err)))
 		return
 	}
@@ -336,7 +380,8 @@ func processVideoFile(videoFile string) {
 	ext := filepath.Ext(videoFile)
 	newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
 
-	_ = bar.Finish()
+	progressWriter.done <- true
+	fmt.Printf("\n")
 
 	// Rename the file
 	if err := os.Rename(videoFile, newFilename); err != nil {
