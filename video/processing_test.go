@@ -2,6 +2,7 @@ package video
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -310,5 +311,186 @@ func TestFindDuplicatesByHash_MixedProcessedUnprocessed(t *testing.T) {
 		}
 	} else {
 		t.Errorf("Expected to find duplicates with hash %s", expectedHash)
+	}
+}
+
+func TestIsFdAvailable(t *testing.T) {
+	// Test isFdAvailable function
+	result := isFdAvailable()
+
+	// Check if fd is actually in PATH
+	_, err := exec.LookPath("fd")
+	expected := err == nil
+
+	if result != expected {
+		t.Errorf("isFdAvailable() = %v, expected %v", result, expected)
+	}
+}
+
+func TestFindTaggedFilesWithWalkDir(t *testing.T) {
+	// Test the fallback method explicitly
+	testDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"processed1_[1920x1080][45min][ABCD1234].mp4",
+		"processed2_[1280x720][30min][ABCD5678].avi",
+		"unprocessed.mp4", // Should be ignored
+		"document.txt",    // Should be ignored
+	}
+
+	for _, filename := range testFiles {
+		testFile := filepath.Join(testDir, filename)
+		err := os.WriteFile(testFile, []byte("test content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+		defer os.Remove(testFile)
+	}
+
+	files, err := findTaggedFilesWithWalkDir(testDir)
+	if err != nil {
+		t.Fatalf("findTaggedFilesWithWalkDir() error = %v", err)
+	}
+
+	// Should find only the processed video files
+	expectedCount := 2
+	if len(files) != expectedCount {
+		t.Errorf("Expected %d files, got %d: %v", expectedCount, len(files), files)
+	}
+
+	// Verify the correct files were found
+	foundProcessed1 := false
+	foundProcessed2 := false
+	for _, file := range files {
+		basename := filepath.Base(file)
+		if strings.Contains(basename, "processed1_[1920x1080][45min][ABCD1234].mp4") {
+			foundProcessed1 = true
+		}
+		if strings.Contains(basename, "processed2_[1280x720][30min][ABCD5678].avi") {
+			foundProcessed2 = true
+		}
+	}
+
+	if !foundProcessed1 || !foundProcessed2 {
+		t.Errorf("Expected to find both processed files, got: %v", files)
+	}
+}
+
+func TestFindTaggedFilesWithFd(t *testing.T) {
+	// Test fd method if available
+	if !isFdAvailable() {
+		t.Skip("fd not available, skipping fd-specific test")
+	}
+
+	testDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"processed1_[1920x1080][45min][ABCD1234].mp4",
+		"processed2_[1280x720][30min][ABCD5678].avi",
+		"unprocessed.mp4", // Should be ignored
+		"document.txt",    // Should be ignored
+	}
+
+	for _, filename := range testFiles {
+		testFile := filepath.Join(testDir, filename)
+		err := os.WriteFile(testFile, []byte("test content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+		defer os.Remove(testFile)
+	}
+
+	files, err := findTaggedFilesWithFd(testDir)
+	if err != nil {
+		t.Fatalf("findTaggedFilesWithFd() error = %v", err)
+	}
+
+	// Should find only the processed video files
+	expectedCount := 2
+	if len(files) != expectedCount {
+		t.Errorf("Expected %d files, got %d: %v", expectedCount, len(files), files)
+	}
+
+	// Verify the correct files were found
+	foundProcessed1 := false
+	foundProcessed2 := false
+	for _, file := range files {
+		basename := filepath.Base(file)
+		if strings.Contains(basename, "processed1_[1920x1080][45min][ABCD1234].mp4") {
+			foundProcessed1 = true
+		}
+		if strings.Contains(basename, "processed2_[1280x720][30min][ABCD5678].avi") {
+			foundProcessed2 = true
+		}
+	}
+
+	if !foundProcessed1 || !foundProcessed2 {
+		t.Errorf("Expected to find both processed files, got: %v", files)
+	}
+}
+
+func TestFindDuplicatesByHash_CompareMethodsConsistency(t *testing.T) {
+	// Test that both fd and walkdir methods produce consistent results
+	testDir := t.TempDir()
+
+	// Create test files with duplicates
+	testFiles := []string{
+		"video1_[1920x1080][45min][DEADBEEF].mp4",
+		"video2_[1920x1080][45min][DEADBEEF].mp4", // Duplicate
+		"video3_[1280x720][30min][CAFEBABE].avi",  // Unique
+	}
+
+	for _, filename := range testFiles {
+		testFile := filepath.Join(testDir, filename)
+		err := os.WriteFile(testFile, []byte("test content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+		defer os.Remove(testFile)
+	}
+
+	// Test walkdir method
+	walkDirFiles, err := findTaggedFilesWithWalkDir(testDir)
+	if err != nil {
+		t.Fatalf("findTaggedFilesWithWalkDir() error = %v", err)
+	}
+
+	// Test fd method if available
+	if isFdAvailable() {
+		fdFiles, err := findTaggedFilesWithFd(testDir)
+		if err != nil {
+			t.Fatalf("findTaggedFilesWithFd() error = %v", err)
+		}
+
+		// Both methods should find the same number of files
+		if len(walkDirFiles) != len(fdFiles) {
+			t.Errorf("Method inconsistency: walkdir found %d files, fd found %d files", len(walkDirFiles), len(fdFiles))
+		}
+
+		// Convert to maps for easier comparison
+		walkDirMap := make(map[string]bool)
+		for _, file := range walkDirFiles {
+			walkDirMap[filepath.Base(file)] = true
+		}
+
+		fdMap := make(map[string]bool)
+		for _, file := range fdFiles {
+			fdMap[filepath.Base(file)] = true
+		}
+
+		// Check that both methods found the same files
+		for filename := range walkDirMap {
+			if !fdMap[filename] {
+				t.Errorf("fd method missed file found by walkdir: %s", filename)
+			}
+		}
+
+		for filename := range fdMap {
+			if !walkDirMap[filename] {
+				t.Errorf("walkdir method missed file found by fd: %s", filename)
+			}
+		}
 	}
 }

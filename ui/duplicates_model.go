@@ -172,17 +172,19 @@ func (m DuplicatesModel) handleConfirmationInput(msg tea.KeyMsg) (tea.Model, tea
 }
 
 func (m DuplicatesModel) handleDeleteCommand() (tea.Model, tea.Cmd) {
-	group := &m.groups[m.currentGroup]
 	var selectedFiles []string
 
-	for i, selected := range group.Selected {
-		if selected {
-			selectedFiles = append(selectedFiles, group.Files[i])
+	// Collect selected files from ALL groups (not just current)
+	for _, group := range m.groups {
+		for i, selected := range group.Selected {
+			if selected {
+				selectedFiles = append(selectedFiles, group.Files[i])
+			}
 		}
 	}
 
 	if len(selectedFiles) == 0 {
-		return m, nil // No files selected, do nothing
+		return m, nil // No files selected anywhere
 	}
 
 	m.pendingDeletion = selectedFiles
@@ -212,48 +214,70 @@ func (m DuplicatesModel) executeDeleteCommand() tea.Cmd {
 
 func (m *DuplicatesModel) handleDeletionComplete(msg DeletionCompleteMsg) {
 	if msg.Success && msg.FilePath == "" {
-		// All files deleted successfully
-		group := &m.groups[m.currentGroup]
+		// All files deleted successfully - process ALL groups that had deletions
+		var groupsToRemove []int
 
-		// Remove deleted files from the group
-		var remainingFiles []string
-		var remainingSelected []bool
+		// Process each group to remove deleted files
+		for groupIndex := range m.groups {
+			group := &m.groups[groupIndex]
 
-		for _, file := range group.Files {
-			deleted := false
-			for _, deletedFile := range m.pendingDeletion {
-				if file == deletedFile {
-					deleted = true
-					group.DeletedFiles = append(group.DeletedFiles, file)
-					break
+			// Remove deleted files from this group
+			var remainingFiles []string
+			var remainingSelected []bool
+
+			for fileIndex, file := range group.Files {
+				deleted := false
+				for _, deletedFile := range m.pendingDeletion {
+					if file == deletedFile {
+						deleted = true
+						group.DeletedFiles = append(group.DeletedFiles, file)
+						break
+					}
+				}
+				if !deleted {
+					remainingFiles = append(remainingFiles, file)
+					// Preserve selection state for non-deleted files
+					remainingSelected = append(remainingSelected, group.Selected[fileIndex])
 				}
 			}
-			if !deleted {
-				remainingFiles = append(remainingFiles, file)
-				remainingSelected = append(remainingSelected, false) // reset selections
+
+			group.Files = remainingFiles
+			group.Selected = remainingSelected
+
+			// Mark groups with <= 1 file for removal
+			if len(group.Files) <= 1 {
+				groupsToRemove = append(groupsToRemove, groupIndex)
 			}
 		}
 
-		group.Files = remainingFiles
-		group.Selected = remainingSelected
+		// Remove empty groups (in reverse order to maintain indices)
+		for i := len(groupsToRemove) - 1; i >= 0; i-- {
+			groupIndex := groupsToRemove[i]
+			m.groups = append(m.groups[:groupIndex], m.groups[groupIndex+1:]...)
 
-		// If only one file remains, remove this group
-		if len(group.Files) <= 1 {
-			m.groups = append(m.groups[:m.currentGroup], m.groups[m.currentGroup+1:]...)
+			// Adjust current group index if necessary
+			if m.currentGroup >= groupIndex {
+				if m.currentGroup > 0 {
+					m.currentGroup--
+				}
+			}
+		}
+
+		// Handle case where all groups were removed
+		if len(m.groups) == 0 {
+			m.quitting = true
+		} else {
+			// Ensure currentGroup is valid
 			if m.currentGroup >= len(m.groups) {
-				if len(m.groups) == 0 {
-					m.quitting = true
-				} else {
-					m.currentGroup = len(m.groups) - 1
-				}
+				m.currentGroup = len(m.groups) - 1
 			}
-		}
 
-		// Reset file selection
-		if len(m.groups) > 0 && m.currentFile >= len(m.groups[m.currentGroup].Files) {
-			m.currentFile = len(m.groups[m.currentGroup].Files) - 1
-			if m.currentFile < 0 {
-				m.currentFile = 0
+			// Ensure currentFile is valid for the current group
+			if m.currentFile >= len(m.groups[m.currentGroup].Files) {
+				m.currentFile = len(m.groups[m.currentGroup].Files) - 1
+				if m.currentFile < 0 {
+					m.currentFile = 0
+				}
 			}
 		}
 	}
@@ -334,6 +358,9 @@ func (m DuplicatesModel) renderMainView() string {
 func (m DuplicatesModel) renderFileList(group DuplicateGroup) string {
 	var content strings.Builder
 
+	// Calculate optimized paths for display
+	optimizedPaths := optimizePaths(group.Files)
+
 	for i, file := range group.Files {
 		var line strings.Builder
 
@@ -346,7 +373,7 @@ func (m DuplicatesModel) renderFileList(group DuplicateGroup) string {
 
 		// File path
 		fileName := filepath.Base(file)
-		fullPath := file
+		displayPath := optimizedPaths[i]
 
 		// Highlight current file
 		if i == m.currentFile {
@@ -363,12 +390,82 @@ func (m DuplicatesModel) renderFileList(group DuplicateGroup) string {
 			}
 		}
 
-		line.WriteString(fmt.Sprintf(" (%s)", fullPath))
+		line.WriteString(fmt.Sprintf(" (%s)", displayPath))
 		content.WriteString(line.String())
 		content.WriteString("\n")
 	}
 
 	return content.String()
+}
+
+// optimizePaths finds the common path prefix and returns optimized display paths
+// that show only the meaningful differences, keeping the topmost directory for context
+func optimizePaths(paths []string) []string {
+	if len(paths) <= 1 {
+		return paths
+	}
+
+	// Split all paths into components
+	pathComponents := make([][]string, len(paths))
+	for i, path := range paths {
+		pathComponents[i] = strings.Split(filepath.Clean(path), string(filepath.Separator))
+	}
+
+	// Find the common prefix length (excluding the root if it's empty)
+	commonPrefixLength := 0
+	if len(pathComponents[0]) > 0 {
+		maxLength := len(pathComponents[0])
+		for _, components := range pathComponents[1:] {
+			if len(components) < maxLength {
+				maxLength = len(components)
+			}
+		}
+
+		// Find common prefix
+		for i := 0; i < maxLength; i++ {
+			first := pathComponents[0][i]
+			allMatch := true
+			for j := 1; j < len(pathComponents); j++ {
+				if pathComponents[j][i] != first {
+					allMatch = false
+					break
+				}
+			}
+			if allMatch {
+				commonPrefixLength = i + 1
+			} else {
+				break
+			}
+		}
+	}
+
+	// Generate optimized paths
+	result := make([]string, len(paths))
+	for i, components := range pathComponents {
+		// Keep at least one directory for context, but remove common prefix
+		startIndex := commonPrefixLength
+		if startIndex > 0 && len(components) > startIndex {
+			startIndex = commonPrefixLength - 1 // Keep one level of context
+		}
+		if startIndex < 0 {
+			startIndex = 0
+		}
+
+		// Build the optimized path
+		if startIndex < len(components) {
+			optimizedComponents := components[startIndex:]
+			result[i] = filepath.Join(optimizedComponents...)
+
+			// Add leading separator if we removed some components
+			if startIndex > 0 {
+				result[i] = "..." + string(filepath.Separator) + result[i]
+			}
+		} else {
+			result[i] = paths[i] // Fallback to original path
+		}
+	}
+
+	return result
 }
 
 func (m DuplicatesModel) renderHelp() string {
@@ -384,7 +481,7 @@ func (m DuplicatesModel) renderHelp() string {
 		"  c            Clear all selections in group",
 		"",
 		"Actions:",
-		"  Enter        Delete selected files (with confirmation)",
+		"  Enter        Delete all selected files from all groups (with confirmation)",
 		"  s            Skip current group",
 		"  h/?          Toggle this help",
 		"  q            Quit",
