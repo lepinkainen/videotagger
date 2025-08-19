@@ -2,23 +2,48 @@
 
 ## Architecture Overview
 
-VideoTagger is a single-file Go CLI application (`main.go`) built with Kong framework for video file management. It uses a command-based architecture with four main operations:
+VideoTagger is a modular Go CLI application built with Kong framework, organized across multiple packages for maintainability. It provides four main video management operations:
 
 - **tag**: Renames files with `[resolution][duration][CRC32]` metadata
 - **duplicates**: Finds files sharing CRC32 hashes (requires processed files)  
 - **verify**: Validates CRC32 checksums against embedded hashes
 - **phash**: Compares video frames using perceptual hashing via FFmpeg
 
+### Package Structure
+
+```plain
+main.go (22 lines)          # CLI definition and entry point
+cmd/                        # Command implementations (250 lines)
+├── tag.go                  # Parallel processing with worker pools
+├── duplicates.go           # Hash-based duplicate detection
+├── verify.go               # Checksum verification
+└── phash.go               # Perceptual hash similarity
+
+ui/                         # TUI components (267 lines)
+├── model.go               # Bubble Tea TUI state management
+├── styles.go              # Lipgloss styling definitions
+└── messages.go            # Worker communication types
+
+utils/                      # Utilities (46 lines)
+└── network.go             # Network drive detection
+
+video/ (334 lines)          # Core video processing
+├── metadata.go            # FFprobe integration
+├── hash.go                # CRC32 + perceptual hashing
+├── validation.go          # File type validation
+└── processing.go          # Main video processing logic
+```
+
 ## Key Technical Patterns
 
-### Kong CLI Framework Structure
+### Kong CLI with Package References
 
 ```go
 type CLI struct {
-    Tag        TagCmd        `cmd:"" help:"Tag video files with metadata and hash"`
-    Duplicates DuplicatesCmd `cmd:"" help:"Find duplicate files by hash"`
-    Verify     VerifyCmd     `cmd:"" help:"Verify file hash integrity"`
-    Phash      PhashCmd      `cmd:"" help:"Find perceptually similar videos"`
+    Tag        *cmd.TagCmd        `cmd:"" help:"Tag video files..."`
+    Duplicates *cmd.DuplicatesCmd `cmd:"" help:"Find duplicate files..."`
+    Verify     *cmd.VerifyCmd     `cmd:"" help:"Verify file hash..."`
+    Phash      *cmd.PhashCmd      `cmd:"" help:"Find perceptually..."`
 }
 ```
 
@@ -32,23 +57,33 @@ type CLI struct {
 ### Worker Pool Architecture
 
 ```go
-// Single-file processing for 1 file or 1 worker
-if len(cmd.Files) == 1 || workers == 1 {
-    // Sequential processing with progress bar
+// Network drive detection influences worker count
+if utils.IsNetworkDrive(file) {
+    workers = 1 // Single worker for network drives
 } else {
-    // Parallel worker pool with channels
-    jobs := make(chan string, len(cmd.Files))
-    var wg sync.WaitGroup
-    // Default: runtime.NumCPU() workers
+    workers = runtime.NumCPU() // Parallel for local drives
+}
+
+// Worker pool pattern used in cmd/tag.go
+jobs := make(chan string, len(cmd.Files))
+var wg sync.WaitGroup
+for i := 0; i < workers; i++ {
+    wg.Add(1)
+    go func(workerID int) {
+        defer wg.Done()
+        for videoFile := range jobs {
+            video.ProcessVideoFile(videoFile)
+        }
+    }(i)
 }
 ```
 
 ### External Dependencies
 
-- **FFmpeg**: `ffprobe -v quiet -print_format json -show_format` for metadata
+- **FFmpeg**: `ffprobe -v error -select_streams v:0 -show_entries stream=width,height` for metadata
 - **FFmpeg frame extraction**: `ffmpeg -ss 30 -vframes 1 -q:v 2` for perceptual hashing
-- **CRC32**: Standard library `hash/crc32.ChecksumIEEE()` for file integrity
-- **Libraries**: Kong (CLI), goimagehash (perceptual hashing), progressbar (UX)
+- **CRC32**: Standard library `hash/crc32.ChecksumIEEE()` for file integrity  
+- **Libraries**: Kong (CLI), goimagehash (perceptual hashing), bubbletea/lipgloss (TUI)
 
 ## Development Workflow
 
@@ -56,16 +91,16 @@ if len(cmd.Files) == 1 || workers == 1 {
 
 - **Build**: `task build` - Runs `test` → `lint` → compile (REQUIRED before completion)
 - **Format**: `goimports -w .` - CRITICAL: NEVER use `gofmt`, always use `goimports`
-- **Test**: `task test` - Runs `go test -v ./...` (currently no tests exist)
+- **Test**: `task test` - Runs `go test -v ./...` with comprehensive test suite
 - **Lint**: `task lint` - Uses `golangci-lint run ./...` (no custom config)
 - **Install**: `task publish` - Copies `build/videotagger` to `$HOME/bin`
 
 ### File Organization
 
-- **Single file**: All code in `main.go` (~500 lines)
-- **No tests**: Project currently lacks test coverage (priority for new features)
-- **Build output**: `build/videotagger` executable
-- **Dependencies**: Go 1.24+, FFmpeg in PATH
+- **Modular packages**: Code split across `cmd/`, `ui/`, `utils/`, `video/` packages  
+- **Comprehensive tests**: 96 test cases covering core functionality
+- **Build output**: `build/videotagger` executable with embedded version
+- **Dependencies**: Go 1.24+, FFmpeg in PATH, TUI libraries
 
 ## Error Handling Strategy
 
@@ -83,21 +118,30 @@ if err != nil {
 
 ## Code Conventions
 
-- **CLI Output**: Use ❌/✅ emojis for user feedback
-- **Progress Bars**: `progressbar.DefaultBytes()` for CRC32 calculations
-- **Worker Count**: Defaults to `runtime.NumCPU()` if `--workers` not specified
-- **Video Extensions**: Case-insensitive matching via `strings.ToLower()`
+- **CLI Output**: Use ❌/✅ emojis for user feedback (in `ui.SuccessStyle`, `ui.ErrorStyle`)
+- **Progress Bars**: Future TUI integration with bubbletea progress models
+- **Worker Count**: Auto-detects network drives, defaults to `runtime.NumCPU()` for local files
+- **Video Extensions**: Case-insensitive matching via `strings.ToLower()` in `video.IsVideoFile()`
 - **Formatting**: CRITICAL - Use `goimports -w .` (never `gofmt`)
 
-## Function Structure (main.go:440 lines)
+## Key Functions by Package
 
-Key functions for testing/modification:
+### video/ package (core processing)
 
-- `main.go:156` - `isVideoFile()` - Extension validation
-- `main.go:55` - `extractHashFromFilename()` - Regex parsing
-- `main.go:103` - `calculateCRC32()` - File integrity
-- `main.go:171` - `getVideoResolution()` - FFprobe wrapper
-- `main.go:256` - `processVideoFile()` - Core tagging logic
+- `video.IsVideoFile()` - Extension validation with comprehensive format support
+- `video.ExtractHashFromFilename()` - Regex parsing of tagged filenames  
+- `video.CalculateCRC32()` - File integrity with progress tracking
+- `video.GetVideoResolution()` - FFprobe metadata extraction
+- `video.ProcessVideoFile()` - Main processing pipeline
+
+### utils/ package  
+
+- `utils.IsNetworkDrive()` - Cross-platform network drive detection (UNC, NFS, SMB)
+
+### ui/ package (future TUI)
+
+- `ui.NewTUIModel()` - Bubble Tea model initialization
+- `ui.SuccessStyle`, `ui.ErrorStyle` - Consistent styling across commands
 
 ## Integration Requirements
 
@@ -105,15 +149,15 @@ Key functions for testing/modification:
 - **Go 1.24+**: Required for language features
 - **Supported formats**: `.mp4, .webm, .mov, .flv, .mkv, .avi, .wmv, .mpg` (case-insensitive)
 
-## Testing Strategy (Priority: Basic Coverage)
+## Testing Strategy
 
-Currently no tests exist. When adding tests:
+Comprehensive test suite with 96 test cases covering:
 
-- **Unit tests**: `isVideoFile()`, `extractHashFromFilename()`, regex validation
-- **Integration tests**: Mock FFmpeg calls with test fixtures in `test_files/`
-- **Error scenarios**: Missing files, corrupted videos, invalid formats
-- **Regression tests**: Filename parsing edge cases, worker pool behavior
-- **Test command**: `task test` runs before build (dependency chain)
+- **Unit tests**: All video processing functions, CLI parsing, network detection
+- **Integration tests**: Real FFmpeg calls with test fixtures in `test_files/`
+- **Error scenarios**: Missing files, corrupted videos, invalid formats, permission issues
+- **Regression tests**: Filename parsing edge cases, worker pool behavior, TUI components
+- **Test command**: `task test` runs before build (enforced by build chain)
 
 ## Development Integration
 
