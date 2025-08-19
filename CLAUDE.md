@@ -124,6 +124,62 @@ if err != nil {
 - **Video Extensions**: Case-insensitive matching via `strings.ToLower()` in `video.IsVideoFile()`
 - **Formatting**: CRITICAL - Use `goimports -w .` (never `gofmt`)
 
+## Modern Shell Tools for Development
+
+Use these faster, more intuitive tools for codebase exploration:
+
+### Code Search with `rg` (ripgrep)
+```bash
+# Find function definitions across packages
+rg "^func " -t go
+
+# Search for specific video processing patterns
+rg "video\.(Process|Calculate)" -t go
+
+# Find TODO/FIXME comments across codebase
+rg "TODO|FIXME|HACK"
+
+# Search for Kong command patterns
+rg "cmd:\"\"" -t go
+
+# Find FFmpeg integration points
+rg "ffprobe|ffmpeg" -A 2 -B 1
+```
+
+### File Discovery with `fd`
+```bash
+# Find all Go source files (respects .gitignore)
+fd "\.go$"
+
+# Find test files specifically
+fd "_test\.go$"
+
+# Find video test fixtures
+fd "\.(mp4|avi|mkv)$" test_files/
+
+# Find configuration files
+fd "config|\.yml$|\.yaml$"
+
+# Search in specific packages
+fd "\.go$" cmd/
+fd "\.go$" video/
+```
+
+### VideoTagger-Specific Patterns
+```bash
+# Find video processing functions
+rg "ProcessVideo|CalculateCRC32|GetVideoResolution" -t go
+
+# Find CLI command implementations
+rg "func.*Run\(\)" -t go cmd/
+
+# Search for network drive handling
+rg "IsNetworkDrive|network" -t go
+
+# Find TUI-related code
+rg "bubbletea|lipgloss|TUIModel" -t go ui/
+```
+
 ## Key Functions by Package
 
 ### video/ package (core processing)
