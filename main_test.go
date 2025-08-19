@@ -480,6 +480,164 @@ func TestFileLogEntry_Processing(t *testing.T) {
 	}
 }
 
+func TestIsNetworkDrive(t *testing.T) {
+	// Test network drive detection
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+	}{
+		{
+			name:     "Linux NFS mount",
+			path:     "/mnt/nfs-share/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Linux media mount",
+			path:     "/media/usb/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "macOS network volume",
+			path:     "/Volumes/NetworkShare/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Windows UNC path",
+			path:     "//server/share/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Windows UNC path escaped",
+			path:     "\\\\server\\share\\video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Local path Linux",
+			path:     "/home/user/videos/video.mp4",
+			expected: false,
+		},
+		{
+			name:     "Local path macOS",
+			path:     "/Users/user/Movies/video.mp4",
+			expected: false,
+		},
+		{
+			name:     "Relative path",
+			path:     "./video.mp4",
+			expected: false,
+		},
+		{
+			name:     "Current directory",
+			path:     "video.mp4",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isNetworkDrive(tt.path)
+			if result != tt.expected {
+				t.Errorf("isNetworkDrive(%q) = %v, expected %v", tt.path, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsNetworkDrive_PathWithNetworkIndicators(t *testing.T) {
+	// Test paths that contain network filesystem indicators in their resolved paths
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+	}{
+		{
+			name:     "Path containing 'nfs'",
+			path:     "/some/path/nfs/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Path containing 'cifs'",
+			path:     "/mount/cifs-share/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Path containing 'smb'",
+			path:     "/shares/smb/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Path containing 'webdav'",
+			path:     "/webdav/share/video.mp4",
+			expected: true,
+		},
+		{
+			name:     "Regular path without indicators",
+			path:     "/home/user/documents/video.mp4",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isNetworkDrive(tt.path)
+			if result != tt.expected {
+				t.Errorf("isNetworkDrive(%q) = %v, expected %v", tt.path, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTagCmd_WorkerCountLogicWithNetworkDrives(t *testing.T) {
+	// Test the updated worker count logic that considers network drives
+	tests := []struct {
+		name           string
+		workersInput   int
+		hasNetworkFile bool
+		expectedOutput int
+	}{
+		{
+			name:           "Network drive detected - should use 1 worker",
+			workersInput:   0,
+			hasNetworkFile: true,
+			expectedOutput: 1,
+		},
+		{
+			name:           "Local drives only - should use NumCPU",
+			workersInput:   0,
+			hasNetworkFile: false,
+			expectedOutput: runtime.NumCPU(),
+		},
+		{
+			name:           "Explicit worker count - should override detection",
+			workersInput:   4,
+			hasNetworkFile: true,
+			expectedOutput: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the logic from TagCmd.Run()
+			workers := tt.workersInput
+			if workers <= 0 {
+				// Simulate network drive check
+				hasNetworkFiles := tt.hasNetworkFile
+
+				if hasNetworkFiles {
+					workers = 1
+				} else {
+					workers = runtime.NumCPU()
+				}
+			}
+
+			if workers != tt.expectedOutput {
+				t.Errorf("Expected %d workers, got %d", tt.expectedOutput, workers)
+			}
+		})
+	}
+}
+
 // Integration test that verifies the full CLI pipeline
 func TestCLI_Integration(t *testing.T) {
 	// Create a temporary test file

@@ -19,6 +19,46 @@ import (
 
 var Version = "dev"
 
+// isNetworkDrive detects if a file path is on a network-mounted drive
+func isNetworkDrive(filePath string) bool {
+	// Check Windows UNC paths first, before converting to absolute path
+	if strings.HasPrefix(filePath, "//") || strings.HasPrefix(filePath, "\\\\") {
+		return true
+	}
+
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+
+	// Check common network mount prefixes on different platforms
+	networkPrefixes := []string{
+		"/mnt/",     // Linux NFS/SMB mounts
+		"/media/",   // Linux removable/network media
+		"/Volumes/", // macOS network volumes
+	}
+
+	for _, prefix := range networkPrefixes {
+		if strings.HasPrefix(absPath, prefix) {
+			return true
+		}
+	}
+
+	// Check for network filesystem indicators in the path
+	lowerPath := strings.ToLower(absPath)
+	networkIndicators := []string{
+		"nfs", "cifs", "smb", "webdav", "ftp", "sftp",
+	}
+
+	for _, indicator := range networkIndicators {
+		if strings.Contains(lowerPath, indicator) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // TUI Message Types for worker communication
 type WorkerStartedMsg struct {
 	WorkerID int
@@ -304,10 +344,24 @@ type PhashCmd struct {
 // All video processing functions moved to video package
 
 func (cmd *TagCmd) Run() error {
-	// Set default worker count to number of CPUs
+	// Set default worker count based on drive type
 	workers := cmd.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		// Check if any files are on network drives
+		hasNetworkFiles := false
+		for _, file := range cmd.Files {
+			if isNetworkDrive(file) {
+				hasNetworkFiles = true
+				break
+			}
+		}
+
+		if hasNetworkFiles {
+			workers = 1 // Use single worker for network drives
+			fmt.Printf("⚠️  Network drive detected, using 1 worker for optimal performance\n")
+		} else {
+			workers = runtime.NumCPU() // Use all CPUs for local drives
+		}
 	}
 
 	// Use TUI for multiple files with multiple workers
