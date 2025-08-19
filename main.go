@@ -17,12 +17,238 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/progress"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/corona10/goimagehash"
 )
 
 var Version = "dev"
+
+// TUI Message Types for worker communication
+type WorkerStartedMsg struct {
+	WorkerID int
+	Filename string
+}
+
+type WorkerProgressMsg struct {
+	WorkerID int
+	Progress float64 // 0.0 to 1.0
+	Bytes    int64
+	Total    int64
+}
+
+type WorkerCompletedMsg struct {
+	WorkerID int
+	Filename string
+	NewName  string
+	Success  bool
+	Error    error
+}
+
+type OverallProgressMsg struct {
+	Completed int
+	Total     int
+}
+
+// File log entry for the processed files list
+type FileLogEntry struct {
+	OriginalName string
+	NewName      string
+	Status       string // "✓", "❌", "🔄"
+	Error        string
+}
+
+func (f FileLogEntry) FilterValue() string { return f.OriginalName }
+func (f FileLogEntry) Title() string       { return f.OriginalName }
+func (f FileLogEntry) Description() string {
+	if f.Error != "" {
+		return fmt.Sprintf("❌ %s", f.Error)
+	}
+	if f.NewName != "" {
+		return fmt.Sprintf("✓ → %s", f.NewName)
+	}
+	return "🔄 Processing..."
+}
+
+// Worker state tracking
+type WorkerState struct {
+	ID          int
+	CurrentFile string
+	Progress    float64
+	Status      string // "idle", "processing", "completed", "error"
+	Error       error
+}
+
+// TUI Model for the application
+type TUIModel struct {
+	// Application state
+	totalFiles     int
+	processedFiles int
+	workers        map[int]*WorkerState
+	fileEntries    []FileLogEntry
+
+	// UI components
+	overallProgress progress.Model
+	workerProgress  []progress.Model
+	fileList        list.Model
+
+	// Layout
+	width  int
+	height int
+
+	// Control state
+	paused   bool
+	quitting bool
+}
+
+// NewTUIModel creates a new TUI model
+func NewTUIModel(numFiles, numWorkers int) TUIModel {
+	// Initialize progress bars
+	overallProg := progress.New(progress.WithDefaultGradient())
+	workerProgs := make([]progress.Model, numWorkers)
+	for i := range workerProgs {
+		workerProgs[i] = progress.New(progress.WithDefaultGradient())
+	}
+
+	// Initialize workers state
+	workers := make(map[int]*WorkerState, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workers[i] = &WorkerState{
+			ID:     i,
+			Status: "idle",
+		}
+	}
+
+	// Initialize file list
+	fileItems := []list.Item{}
+	fileList := list.New(fileItems, list.NewDefaultDelegate(), 0, 0)
+	fileList.Title = "Processed Files"
+
+	return TUIModel{
+		totalFiles:      numFiles,
+		workers:         workers,
+		overallProgress: overallProg,
+		workerProgress:  workerProgs,
+		fileList:        fileList,
+	}
+}
+
+// Init implements tea.Model
+func (m TUIModel) Init() tea.Cmd {
+	return nil
+}
+
+// Update implements tea.Model
+func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.quitting = true
+			return m, tea.Quit
+		case "p":
+			m.paused = !m.paused
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.fileList.SetSize(msg.Width-4, msg.Height/3)
+
+	case WorkerStartedMsg:
+		if worker, ok := m.workers[msg.WorkerID]; ok {
+			worker.CurrentFile = msg.Filename
+			worker.Status = "processing"
+		}
+
+	case WorkerProgressMsg:
+		if worker, ok := m.workers[msg.WorkerID]; ok {
+			worker.Progress = msg.Progress
+		}
+
+	case WorkerCompletedMsg:
+		if worker, ok := m.workers[msg.WorkerID]; ok {
+			worker.Status = "completed"
+			worker.CurrentFile = ""
+			worker.Progress = 0
+		}
+
+		// Add to file log
+		entry := FileLogEntry{
+			OriginalName: msg.Filename,
+			NewName:      msg.NewName,
+			Status:       "✓",
+		}
+		if !msg.Success {
+			entry.Status = "❌"
+			entry.Error = msg.Error.Error()
+		}
+
+		m.fileEntries = append(m.fileEntries, entry)
+		items := make([]list.Item, len(m.fileEntries))
+		for i, entry := range m.fileEntries {
+			items[i] = entry
+		}
+		m.fileList.SetItems(items)
+
+	case OverallProgressMsg:
+		m.processedFiles = msg.Completed
+	}
+
+	return m, nil
+}
+
+// View implements tea.Model
+func (m TUIModel) View() string {
+	if m.quitting {
+		return "Shutting down...\n"
+	}
+
+	// Header
+	header := headerStyle.Render(fmt.Sprintf("VideoTagger %s", Version))
+
+	// Overall progress
+	overallPercent := 0.0
+	if m.totalFiles > 0 {
+		overallPercent = float64(m.processedFiles) / float64(m.totalFiles)
+	}
+	overallView := fmt.Sprintf("Overall Progress: %s (%d/%d)",
+		m.overallProgress.ViewAs(overallPercent),
+		m.processedFiles,
+		m.totalFiles)
+
+	// Worker status
+	workerViews := []string{"Worker Status:"}
+	for i, worker := range m.workers {
+		status := fmt.Sprintf("Worker %d: ", i+1)
+		if worker.Status == "processing" {
+			progBar := m.workerProgress[i].ViewAs(worker.Progress)
+			status += fmt.Sprintf("%s %s", progBar, worker.CurrentFile)
+		} else {
+			status += fmt.Sprintf("%-20s %s", worker.Status, worker.CurrentFile)
+		}
+		workerViews = append(workerViews, status)
+	}
+
+	// File list
+	fileListView := m.fileList.View()
+
+	// Controls
+	controls := "Controls: [q] Quit  [p] Pause/Resume"
+
+	// Combine all sections
+	sections := []string{
+		header,
+		overallView,
+		strings.Join(workerViews, "\n"),
+		fileListView,
+		controls,
+	}
+
+	return strings.Join(sections, "\n\n")
+}
 
 // progressWriter wraps progress bar for io.Writer interface
 type progressWriter struct {
@@ -268,49 +494,68 @@ func getVideoDuration(videoFile string) (float64, error) {
 }
 
 func (cmd *TagCmd) Run() error {
-	fmt.Println(headerStyle.Render(fmt.Sprintf("Video Tagger %s", Version)))
-	fmt.Println(processingStyle.Render(fmt.Sprintf("Processing %d files:", len(cmd.Files))))
-
 	// Set default worker count to number of CPUs
 	workers := cmd.Workers
 	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
 
-	// If only one file or one worker, process sequentially
-	if len(cmd.Files) == 1 || workers == 1 {
-		for _, videoFile := range cmd.Files {
-			processVideoFile(videoFile)
-		}
-	} else {
-		// Process files in parallel
-		jobs := make(chan string, len(cmd.Files))
-		var wg sync.WaitGroup
+	// Use TUI for multiple files with multiple workers
+	if len(cmd.Files) > 1 && workers > 1 {
+		return cmd.runWithTUI(workers)
+	}
 
-		// Start workers
-		for i := 0; i < workers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for videoFile := range jobs {
-					processVideoFile(videoFile)
-				}
-			}()
-		}
+	// Fall back to simple mode for single file or single worker
+	fmt.Println(headerStyle.Render(fmt.Sprintf("Video Tagger %s", Version)))
+	fmt.Println(processingStyle.Render(fmt.Sprintf("Processing %d files:", len(cmd.Files))))
 
-		// Send jobs
-		for _, videoFile := range cmd.Files {
-			jobs <- videoFile
-		}
-		close(jobs)
-
-		// Wait for completion
-		wg.Wait()
+	for _, videoFile := range cmd.Files {
+		processVideoFile(videoFile)
 	}
 
 	fmt.Printf("\n%s\n", successStyle.Render("✅ Processing complete."))
 	return nil
 }
+
+// runWithTUI runs the tag command with TUI interface
+func (cmd *TagCmd) runWithTUI(workers int) error {
+	// For now, fall back to simple mode while we develop the TUI
+	// TODO: Implement full TUI integration
+	fmt.Println(headerStyle.Render(fmt.Sprintf("Video Tagger %s (TUI Mode)", Version)))
+	fmt.Println(processingStyle.Render(fmt.Sprintf("Processing %d files with %d workers:", len(cmd.Files), workers)))
+
+	// Process files in parallel (without TUI for now)
+	jobs := make(chan string, len(cmd.Files))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for videoFile := range jobs {
+				fmt.Printf("Worker %d: Processing %s\n", workerID+1, videoFile)
+				processVideoFile(videoFile)
+			}
+		}(i)
+	}
+
+	// Send jobs
+	for _, videoFile := range cmd.Files {
+		jobs <- videoFile
+	}
+	close(jobs)
+
+	// Wait for completion
+	wg.Wait()
+
+	fmt.Printf("\n%s\n", successStyle.Render("✅ Processing complete."))
+	return nil
+}
+
+// TODO: Complete TUI implementation in future phase
+
+// TODO: Complete full TUI implementation in future iterations
 
 // processVideoFile handles the processing of a single video file
 func processVideoFile(videoFile string) {
