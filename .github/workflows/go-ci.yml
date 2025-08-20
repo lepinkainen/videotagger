@@ -93,6 +93,29 @@ jobs:
       - name: Build
         run: task build
 
+      - name: Create nightly tag
+        if: github.event_name == 'schedule'
+        run: |
+          NIGHTLY_TAG="nightly-$(date +%Y-%m-%d)"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag -a "$NIGHTLY_TAG" -m "Nightly build for $(date +%Y-%m-%d)"
+          git push origin "$NIGHTLY_TAG"
+
+      - name: Cleanup old nightly tags
+        if: github.event_name == 'schedule'
+        run: |
+          # Keep last 30 days of nightly tags
+          CUTOFF_DATE=$(date -d '30 days ago' +%Y-%m-%d)
+          git fetch --tags
+          for tag in $(git tag -l "nightly-*" | sort); do
+            tag_date=$(echo "$tag" | sed 's/nightly-//')
+            if [[ "$tag_date" < "$CUTOFF_DATE" ]]; then
+              echo "Removing old nightly tag: $tag"
+              git push --delete origin "$tag" || true
+            fi
+          done
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@6d798873df2b1b8e5846dba6fb86631229fbcb17
         # v4.6.0
