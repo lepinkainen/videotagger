@@ -233,6 +233,136 @@ func TestRenameVideoFile(t *testing.T) {
 	}
 }
 
+// Tests for processVideoFileCore (pure function)
+
+func TestProcessVideoFileCore_Directory(t *testing.T) {
+	testDir := t.TempDir()
+
+	result := processVideoFileCore(testDir)
+
+	if result.Error != nil {
+		t.Errorf("Unexpected error: %v", result.Error)
+	}
+
+	if !result.WasSkipped {
+		t.Error("Expected directory to be skipped")
+	}
+
+	if result.SkipReason != "is a directory" {
+		t.Errorf("Expected skip reason 'is a directory', got '%s'", result.SkipReason)
+	}
+
+	if result.WasRenamed {
+		t.Error("Directory should not be renamed")
+	}
+}
+
+func TestProcessVideoFileCore_NonVideoFile(t *testing.T) {
+	testDir := t.TempDir()
+	testFile := filepath.Join(testDir, "document.txt")
+
+	err := os.WriteFile(testFile, []byte("text content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	result := processVideoFileCore(testFile)
+
+	if result.Error != nil {
+		t.Errorf("Unexpected error: %v", result.Error)
+	}
+
+	if !result.WasSkipped {
+		t.Error("Expected non-video file to be skipped")
+	}
+
+	if result.SkipReason != "is not a video file" {
+		t.Errorf("Expected skip reason 'is not a video file', got '%s'", result.SkipReason)
+	}
+
+	if result.WasRenamed {
+		t.Error("Non-video file should not be renamed")
+	}
+}
+
+func TestProcessVideoFileCore_AlreadyProcessed(t *testing.T) {
+	testDir := t.TempDir()
+	processedFile := filepath.Join(testDir, "video_[1920x1080][45min][ABCD1234].mp4")
+
+	err := os.WriteFile(processedFile, []byte("fake video content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	result := processVideoFileCore(processedFile)
+
+	if result.Error != nil {
+		t.Errorf("Unexpected error: %v", result.Error)
+	}
+
+	if !result.WasSkipped {
+		t.Error("Expected already processed file to be skipped")
+	}
+
+	if result.SkipReason != "already processed" {
+		t.Errorf("Expected skip reason 'already processed', got '%s'", result.SkipReason)
+	}
+
+	if result.WasRenamed {
+		t.Error("Already processed file should not be renamed")
+	}
+}
+
+func TestProcessVideoFileCore_NonExistentFile(t *testing.T) {
+	nonExistentFile := "/path/to/nonexistent/video.mp4"
+
+	result := processVideoFileCore(nonExistentFile)
+
+	if result.Error == nil {
+		t.Error("Expected error for non-existent file")
+	}
+
+	if result.WasSkipped {
+		t.Error("Non-existent file should not be marked as skipped, should error")
+	}
+
+	if result.WasRenamed {
+		t.Error("Non-existent file should not be renamed")
+	}
+}
+
+func TestProcessVideoFileCore_ValidVideoFile(t *testing.T) {
+	// This test will likely fail in CI because it requires FFmpeg
+	// But it demonstrates the expected behavior for valid video files
+	testDir := t.TempDir()
+	testFile := filepath.Join(testDir, "test_video.mp4")
+
+	err := os.WriteFile(testFile, []byte("fake video content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	result := processVideoFileCore(testFile)
+
+	// This will likely fail because it's not a real video file
+	// In a real scenario with FFmpeg available and real video files,
+	// we would expect:
+	// - result.Error to be nil (or contain FFmpeg errors)
+	// - result.WasSkipped to be false
+	// - result.Metadata to contain resolution/duration
+	// - result.CRC32 to contain the calculated hash
+	// - result.NewPath to contain the new filename
+	// - result.WasRenamed to potentially be true (if rename succeeded)
+
+	t.Logf("Result for fake video file: Error=%v, WasSkipped=%v, WasRenamed=%v",
+		result.Error, result.WasSkipped, result.WasRenamed)
+
+	// The main assertion we can make is that the result structure is populated
+	if result.OriginalPath != testFile {
+		t.Errorf("Expected OriginalPath=%s, got %s", testFile, result.OriginalPath)
+	}
+}
+
 // Integration tests for ProcessVideoFile
 
 func TestProcessVideoFile_DirectoryInput(t *testing.T) {

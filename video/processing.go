@@ -79,39 +79,101 @@ func renameVideoFile(oldPath, newPath string) error {
 	return os.Rename(oldPath, newPath)
 }
 
-// ProcessVideoFile handles the processing of a single video file
-func ProcessVideoFile(videoFile string) {
+// processVideoFileCore handles the core logic of processing a video file without side effects
+func processVideoFileCore(videoFile string) *ProcessingResult {
+	result := &ProcessingResult{
+		OriginalPath: videoFile,
+	}
+
 	// Validate the file
 	validationResult, err := validateVideoFile(videoFile)
 	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error processing %s: %v", videoFile, err)))
-		return
+		result.Error = err
+		return result
 	}
 
 	// Directory, skip
 	if validationResult.IsDirectory {
-		fmt.Printf("%s is a directory.\n", videoFile)
-		return
+		result.WasSkipped = true
+		result.SkipReason = "is a directory"
+		return result
 	}
 
 	// Not a video file, skip
 	if !validationResult.IsVideoFile {
-		fmt.Printf("%s is not a video file, skipping\n", videoFile)
-		return
+		result.WasSkipped = true
+		result.SkipReason = "is not a video file"
+		return result
 	}
 
 	// Already processed, skip
 	if validationResult.IsProcessed {
+		result.WasSkipped = true
+		result.SkipReason = "already processed"
+		return result
+	}
+
+	// Extract video metadata
+	metadata, err := extractVideoMetadata(videoFile)
+	if err != nil {
+		result.Error = err
+		return result
+	}
+	result.Metadata = metadata
+
+	// Calculate file hash without progress tracking for pure function
+	crc, err := calculateFileHash(videoFile, nil)
+	if err != nil {
+		result.Error = err
+		return result
+	}
+	result.CRC32 = crc
+
+	// Generate new filename
+	newFilename := generateTaggedFilename(videoFile, metadata, crc)
+	result.NewPath = newFilename
+
+	// Attempt to rename the file
+	if err := renameVideoFile(videoFile, newFilename); err != nil {
+		result.Error = err
+		return result
+	}
+
+	result.WasRenamed = true
+	return result
+}
+
+// ProcessVideoFile handles the processing of a single video file with console output
+func ProcessVideoFile(videoFile string) {
+	result := processVideoFileCore(videoFile)
+
+	// Handle the result with appropriate console output
+	if result.Error != nil {
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error processing %s: %v", videoFile, result.Error)))
 		return
 	}
 
-	fileSize := validationResult.FileInfo.Size()
+	if result.WasSkipped {
+		switch result.SkipReason {
+		case "is a directory":
+			fmt.Printf("%s is a directory.\n", videoFile)
+		case "is not a video file":
+			fmt.Printf("%s is not a video file, skipping\n", videoFile)
+		case "already processed":
+			// Silently skip already processed files
+		}
+		return
+	}
+
+	// For successful processing, show progress and results
+	fileInfo, _ := os.Stat(videoFile)
+	fileSize := fileInfo.Size()
 
 	// Create a custom progress bar with lipgloss styling
 	prog := progress.New(progress.WithDefaultGradient())
 	fmt.Printf("%s\n", processingStyle.Render(fmt.Sprintf("📊 Processing: %s", videoFile)))
 
-	// Create a progress writer
+	// Create a progress writer for visual feedback
 	progressWriter := &progressWriter{
 		total: fileSize,
 		prog:  prog,
@@ -119,29 +181,11 @@ func ProcessVideoFile(videoFile string) {
 	}
 	go progressWriter.render()
 
-	// Extract video metadata
-	metadata, err := extractVideoMetadata(videoFile)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
-		return
-	}
-
-	// Calculate file hash with progress tracking
-	crc, err := calculateFileHash(videoFile, progressWriter)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
-		return
-	}
-
-	// Generate new filename
-	newFilename := generateTaggedFilename(videoFile, metadata, crc)
-
+	// Recalculate hash with progress tracking for UI
+	_, _ = calculateFileHash(videoFile, progressWriter)
 	progressWriter.done <- true
 
-	// Rename the file
-	if err := renameVideoFile(videoFile, newFilename); err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error renaming file: %v", err)))
-	} else {
-		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(newFilename))))
+	if result.WasRenamed {
+		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(result.NewPath))))
 	}
 }
