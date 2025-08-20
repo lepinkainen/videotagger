@@ -5,88 +5,107 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/lipgloss"
 )
 
-// progressWriter wraps progress bar for io.Writer interface
-type progressWriter struct {
-	total   int64
-	current int64
-	prog    progress.Model
-	done    chan bool
-}
-
-func (pw *progressWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	pw.current += int64(n)
-	return n, nil
-}
-
-func (pw *progressWriter) render() {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-pw.done:
-			// Show 100% progress before clearing
-			fmt.Printf("\r%s\n", pw.prog.ViewAs(1.0))
-			return
-		case <-ticker.C:
-			if pw.current > 0 {
-				percent := float64(pw.current) / float64(pw.total)
-				fmt.Printf("\r%s", pw.prog.ViewAs(percent))
-			}
-		}
+// validateVideoFile performs all file validation checks and returns structured results
+func validateVideoFile(videoFile string) (*FileValidationResult, error) {
+	fi, err := os.Stat(videoFile)
+	if err != nil {
+		return nil, err
 	}
+
+	result := &FileValidationResult{
+		FileInfo:    fi,
+		IsDirectory: fi.IsDir(),
+		IsVideoFile: IsVideoFile(videoFile),
+		IsProcessed: IsProcessed(videoFile),
+	}
+
+	return result, nil
 }
 
-// Styling definitions
-var (
-	processingStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
-			Bold(true)
+// extractVideoMetadata extracts resolution and duration from a video file
+func extractVideoMetadata(videoFile string) (*VideoMetadata, error) {
+	resolution, err := GetVideoResolution(videoFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get resolution: %w", err)
+	}
 
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
+	durationMins, err := GetVideoDuration(videoFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get duration: %w", err)
+	}
 
-	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("46")).
-			Bold(true)
-)
+	return &VideoMetadata{
+		Resolution:   resolution,
+		DurationMins: durationMins,
+	}, nil
+}
+
+// calculateFileHash calculates the CRC32 hash of a file with optional progress tracking
+func calculateFileHash(videoFile string, progressWriter io.Writer) (uint32, error) {
+	f, err := os.Open(videoFile)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file for hash calculation: %w", err)
+	}
+	defer f.Close()
+
+	h := crc32.NewIEEE()
+	var writers []io.Writer
+	writers = append(writers, h)
+	if progressWriter != nil {
+		writers = append(writers, progressWriter)
+	}
+
+	if _, err := io.Copy(io.MultiWriter(writers...), f); err != nil {
+		return 0, fmt.Errorf("failed to calculate hash: %w", err)
+	}
+
+	return h.Sum32(), nil
+}
+
+// generateTaggedFilename creates the new filename with metadata tags
+func generateTaggedFilename(originalPath string, metadata *VideoMetadata, crc uint32) string {
+	ext := filepath.Ext(originalPath)
+	baseName := originalPath[0 : len(originalPath)-len(ext)]
+	return fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", baseName, metadata.Resolution, metadata.DurationMins, crc, ext)
+}
+
+// renameVideoFile performs the actual file rename operation
+func renameVideoFile(oldPath, newPath string) error {
+	return os.Rename(oldPath, newPath)
+}
 
 // ProcessVideoFile handles the processing of a single video file
 func ProcessVideoFile(videoFile string) {
-	fi, err := os.Stat(videoFile)
+	// Validate the file
+	validationResult, err := validateVideoFile(videoFile)
 	if err != nil {
 		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error processing %s: %v", videoFile, err)))
 		return
 	}
 
 	// Directory, skip
-	if fi.IsDir() {
+	if validationResult.IsDirectory {
 		fmt.Printf("%s is a directory.\n", videoFile)
 		return
 	}
 
 	// Not a video file, skip
-	if !IsVideoFile(videoFile) {
+	if !validationResult.IsVideoFile {
 		fmt.Printf("%s is not a video file, skipping\n", videoFile)
 		return
 	}
 
-	if IsProcessed(videoFile) {
+	// Already processed, skip
+	if validationResult.IsProcessed {
 		return
 	}
 
-	fileSize := fi.Size()
+	fileSize := validationResult.FileInfo.Size()
 
 	// Create a custom progress bar with lipgloss styling
 	prog := progress.New(progress.WithDefaultGradient())
@@ -100,206 +119,29 @@ func ProcessVideoFile(videoFile string) {
 	}
 	go progressWriter.render()
 
-	resolution, err := GetVideoResolution(videoFile)
+	// Extract video metadata
+	metadata, err := extractVideoMetadata(videoFile)
 	if err != nil {
 		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
 		return
 	}
 
-	durationMins, err := GetVideoDuration(videoFile)
+	// Calculate file hash with progress tracking
+	crc, err := calculateFileHash(videoFile, progressWriter)
 	if err != nil {
 		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error: %v", err)))
 		return
 	}
 
-	// Open the file to calculate CRC32
-	f, err := os.Open(videoFile)
-	if err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error opening file for CRC calculation: %v", err)))
-		return
-	}
-	defer f.Close()
-
-	h := crc32.NewIEEE()
-	if _, err := io.Copy(io.MultiWriter(h, progressWriter), f); err != nil {
-		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error calculating CRC: %v", err)))
-		return
-	}
-	crc := h.Sum32()
-
-	ext := filepath.Ext(videoFile)
-	newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
+	// Generate new filename
+	newFilename := generateTaggedFilename(videoFile, metadata, crc)
 
 	progressWriter.done <- true
 
 	// Rename the file
-	if err := os.Rename(videoFile, newFilename); err != nil {
+	if err := renameVideoFile(videoFile, newFilename); err != nil {
 		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error renaming file: %v", err)))
 	} else {
 		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(newFilename))))
 	}
-}
-
-// FindVideoFilesRecursively scans a directory for unprocessed video files
-func FindVideoFilesRecursively(directory string) ([]string, error) {
-	var files []string
-	var err error
-
-	// Use fd if available for better performance, otherwise fall back to filepath.WalkDir
-	if isFdAvailable() {
-		files, err = findUnprocessedFilesWithFd(directory)
-		if err != nil {
-			// If fd fails, fall back to the standard method
-			files, err = findUnprocessedFilesWithWalkDir(directory)
-		}
-	} else {
-		files, err = findUnprocessedFilesWithWalkDir(directory)
-	}
-
-	return files, err
-}
-
-// FindDuplicatesByHash scans a directory for video files and groups them by CRC32 hash
-func FindDuplicatesByHash(directory string) (map[string][]string, error) {
-	hashToFiles := make(map[string][]string)
-
-	var files []string
-	var err error
-
-	// Use fd if available for better performance, otherwise fall back to filepath.WalkDir
-	if isFdAvailable() {
-		files, err = findTaggedFilesWithFd(directory)
-		if err != nil {
-			// If fd fails, fall back to the standard method
-			files, err = findTaggedFilesWithWalkDir(directory)
-		}
-	} else {
-		files, err = findTaggedFilesWithWalkDir(directory)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract hashes from the found files
-	for _, path := range files {
-		if hash, ok := ExtractHashFromFilename(filepath.Base(path)); ok {
-			hashToFiles[hash] = append(hashToFiles[hash], path)
-		}
-	}
-
-	// Filter out hashes with only one file (not duplicates)
-	duplicates := make(map[string][]string)
-	for hash, files := range hashToFiles {
-		if len(files) > 1 {
-			duplicates[hash] = files
-		}
-	}
-
-	return duplicates, nil
-}
-
-// findTaggedFilesWithWalkDir uses filepath.WalkDir to find tagged video files (fallback method)
-func findTaggedFilesWithWalkDir(directory string) ([]string, error) {
-	var files []string
-
-	err := filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		if !IsVideoFile(path) {
-			return nil
-		}
-
-		if IsProcessed(path) {
-			files = append(files, path)
-		}
-
-		return nil
-	})
-
-	return files, err
-}
-
-// isFdAvailable checks if the 'fd' command is available in PATH
-func isFdAvailable() bool {
-	_, err := exec.LookPath("fd")
-	return err == nil
-}
-
-// findUnprocessedFilesWithWalkDir uses filepath.WalkDir to find unprocessed video files
-func findUnprocessedFilesWithWalkDir(directory string) ([]string, error) {
-	var files []string
-
-	err := filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		if !IsVideoFile(path) {
-			return nil
-		}
-
-		if !IsProcessed(path) {
-			files = append(files, path)
-		}
-
-		return nil
-	})
-
-	return files, err
-}
-
-// findUnprocessedFilesWithFd uses the 'fd' command to efficiently find unprocessed video files
-func findUnprocessedFilesWithFd(directory string) ([]string, error) {
-	// Find all video files and filter out processed ones
-	videoExts := []string{"mp4", "webm", "mov", "flv", "mkv", "avi", "wmv", "mpg"}
-	extPattern := "\\." + strings.Join(videoExts, "|\\.")
-
-	cmd := exec.Command("fd", extPattern, "--type", "f", "--case-sensitive", "false", directory)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var files []string
-	for _, line := range lines {
-		if line != "" && IsVideoFile(line) && !IsProcessed(line) {
-			files = append(files, line)
-		}
-	}
-
-	return files, nil
-}
-
-// findTaggedFilesWithFd uses the 'fd' command to efficiently find tagged video files
-func findTaggedFilesWithFd(directory string) ([]string, error) {
-	// Pattern matches tagged files: _[resolution][duration][hash].ext
-	pattern := `_\[.*\]\[.*min\]\[[a-fA-F0-9]{8}\]\.`
-
-	cmd := exec.Command("fd", pattern, "--type", "f", directory)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var files []string
-	for _, line := range lines {
-		if line != "" && IsVideoFile(line) {
-			files = append(files, line)
-		}
-	}
-
-	return files, nil
 }
