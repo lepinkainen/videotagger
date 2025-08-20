@@ -6,6 +6,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/lepinkainen/videotagger/cmd"
 	"github.com/lepinkainen/videotagger/types"
+	"github.com/lepinkainen/videotagger/utils"
 )
 
 var Version = "dev"
@@ -31,6 +32,15 @@ func main() {
 		Version: Version,
 	}
 	ctx := kong.Parse(&cli, kong.Bind(appCtx))
+
+	// Validate FFmpeg dependencies before running any command
+	// Skip validation for version command as it doesn't require FFmpeg
+	if ctx.Command() != "version" {
+		if err := utils.ValidateFFmpegDependencies(); err != nil {
+			ctx.FatalIfErrorf(err)
+		}
+	}
+
 	err := ctx.Run()
 	ctx.FatalIfErrorf(err)
 }
