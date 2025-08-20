@@ -494,3 +494,169 @@ func TestFindDuplicatesByHash_CompareMethodsConsistency(t *testing.T) {
 		}
 	}
 }
+
+func TestFindVideoFilesRecursively(t *testing.T) {
+	// Create a temporary directory structure with video files
+	testDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"video1.mp4",
+		"video2.avi",
+		"subfolder/video3.mkv",
+		"subfolder/nested/video4.mov",
+		"already_processed_[1920x1080][45min][12345678].mp4",
+		"document.txt", // Non-video file
+	}
+
+	for _, file := range testFiles {
+		fullPath := filepath.Join(testDir, file)
+		dir := filepath.Dir(fullPath)
+
+		// Create directory if needed
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+
+		// Create empty file
+		if err := os.WriteFile(fullPath, []byte("test content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", fullPath, err)
+		}
+	}
+
+	// Test FindVideoFilesRecursively
+	files, err := FindVideoFilesRecursively(testDir)
+	if err != nil {
+		t.Fatalf("FindVideoFilesRecursively() error = %v", err)
+	}
+
+	// Should find only unprocessed video files
+	expectedFiles := []string{
+		filepath.Join(testDir, "video1.mp4"),
+		filepath.Join(testDir, "video2.avi"),
+		filepath.Join(testDir, "subfolder/video3.mkv"),
+		filepath.Join(testDir, "subfolder/nested/video4.mov"),
+	}
+
+	if len(files) != len(expectedFiles) {
+		t.Errorf("Expected %d files, got %d", len(expectedFiles), len(files))
+		t.Logf("Found files: %v", files)
+		t.Logf("Expected files: %v", expectedFiles)
+	}
+
+	// Convert to maps for easier comparison
+	foundMap := make(map[string]bool)
+	for _, file := range files {
+		foundMap[file] = true
+	}
+
+	for _, expected := range expectedFiles {
+		if !foundMap[expected] {
+			t.Errorf("Expected file not found: %s", expected)
+		}
+	}
+}
+
+func TestFindUnprocessedFilesWithWalkDir(t *testing.T) {
+	// Test the unprocessed files walkdir method
+	testDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"unprocessed1.mp4",
+		"unprocessed2.avi",
+		"processed_[1920x1080][45min][ABCD1234].mp4",
+		"document.txt", // Should be ignored
+	}
+
+	for _, filename := range testFiles {
+		testFile := filepath.Join(testDir, filename)
+		err := os.WriteFile(testFile, []byte("test content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+		defer os.Remove(testFile)
+	}
+
+	files, err := findUnprocessedFilesWithWalkDir(testDir)
+	if err != nil {
+		t.Fatalf("findUnprocessedFilesWithWalkDir() error = %v", err)
+	}
+
+	// Should find only the unprocessed video files
+	expectedCount := 2
+	if len(files) != expectedCount {
+		t.Errorf("Expected %d files, got %d: %v", expectedCount, len(files), files)
+	}
+
+	// Verify the correct files were found
+	foundUnprocessed1 := false
+	foundUnprocessed2 := false
+	for _, file := range files {
+		basename := filepath.Base(file)
+		if basename == "unprocessed1.mp4" {
+			foundUnprocessed1 = true
+		}
+		if basename == "unprocessed2.avi" {
+			foundUnprocessed2 = true
+		}
+	}
+
+	if !foundUnprocessed1 || !foundUnprocessed2 {
+		t.Errorf("Expected to find both unprocessed files, got: %v", files)
+	}
+}
+
+func TestFindUnprocessedFilesWithFd(t *testing.T) {
+	// Test fd method for unprocessed files if available
+	if !isFdAvailable() {
+		t.Skip("fd not available, skipping fd-specific test")
+	}
+
+	testDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"unprocessed1.mp4",
+		"unprocessed2.avi",
+		"processed_[1920x1080][45min][ABCD1234].mp4",
+		"document.txt", // Should be ignored
+	}
+
+	for _, filename := range testFiles {
+		testFile := filepath.Join(testDir, filename)
+		err := os.WriteFile(testFile, []byte("test content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+		defer os.Remove(testFile)
+	}
+
+	files, err := findUnprocessedFilesWithFd(testDir)
+	if err != nil {
+		t.Fatalf("findUnprocessedFilesWithFd() error = %v", err)
+	}
+
+	// Should find only the unprocessed video files
+	expectedCount := 2
+	if len(files) != expectedCount {
+		t.Errorf("Expected %d files, got %d: %v", expectedCount, len(files), files)
+	}
+
+	// Verify the correct files were found
+	foundUnprocessed1 := false
+	foundUnprocessed2 := false
+	for _, file := range files {
+		basename := filepath.Base(file)
+		if basename == "unprocessed1.mp4" {
+			foundUnprocessed1 = true
+		}
+		if basename == "unprocessed2.avi" {
+			foundUnprocessed2 = true
+		}
+	}
+
+	if !foundUnprocessed1 || !foundUnprocessed2 {
+		t.Errorf("Expected to find both unprocessed files, got: %v", files)
+	}
+}
