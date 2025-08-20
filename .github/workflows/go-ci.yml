@@ -85,13 +85,8 @@ jobs:
         with:
           version: 3.x
 
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
       - name: Build
-        run: task build
+        run: task build-only
 
       - name: Create nightly tag
         if: github.event_name == 'schedule'
