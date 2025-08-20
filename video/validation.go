@@ -30,10 +30,22 @@ func IsProcessed(filename string) bool {
 }
 
 // ExtractHashFromFilename extracts the CRC32 hash from a processed filename
+// It finds the last bracket section containing an 8-character hex string
 func ExtractHashFromFilename(filename string) (string, bool) {
-	matches := wasProcessedRegex.FindStringSubmatch(filename)
-	if len(matches) >= 4 {
-		return matches[3], true
+	// First check if file is processed using the existing regex
+	if !wasProcessedRegex.MatchString(filename) {
+		return "", false
 	}
-	return "", false
+
+	// Find all 8-character hex strings in brackets: [ABCD1234]
+	hashRegex := regexp.MustCompile(`\[([a-fA-F0-9]{8})\]`)
+	matches := hashRegex.FindAllStringSubmatch(filename, -1)
+
+	if len(matches) == 0 {
+		return "", false
+	}
+
+	// Return the last hash found
+	lastMatch := matches[len(matches)-1]
+	return lastMatch[1], true
 }

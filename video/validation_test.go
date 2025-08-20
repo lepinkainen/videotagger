@@ -108,6 +108,12 @@ func TestExtractHashFromFilename(t *testing.T) {
 		{"Numbers in name", "Video123_[1280x720][15min][12AB34CD].mp4", "12AB34CD", true},
 		{"Spaces in name", "My Video File_[1920x1080][60min][FEDCBA98].avi", "FEDCBA98", true},
 
+		// Test cases for extracting hash from last bracket section (GitHub issue #2)
+		{"Movie with year bracket", "Movie[2023]_[1920x1080][45min][ABCD1234].mp4", "ABCD1234", true},
+		{"Series with episode bracket", "Series[S01E01]_[1920x1080][45min][DEADBEEF].mkv", "DEADBEEF", true},
+		{"Multiple extra brackets", "Film[Director][2024][Remastered]_[1920x1080][120min][12345678].mp4", "12345678", true},
+		{"Hash not in 3rd position", "Show[S02E03][HD]_[3840x2160][30min][FEDCBA98].webm", "FEDCBA98", true},
+
 		// Invalid formats
 		{"No metadata", "video.mp4", "", false},
 		{"Partial metadata", "video_[1920x1080].mp4", "", false},
