@@ -73,7 +73,7 @@ tasks:
 
   test-ci:
     cmds:
-      - go test -tags=ci -cover -v ./...
+      - go test -tags=ci -coverprofile=coverage.out -cover -v ./...
     sources:
       - ./*.go
 

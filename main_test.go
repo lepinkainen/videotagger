@@ -625,6 +625,127 @@ func TestTagCmd_WorkerCountLogicWithNetworkDrives(t *testing.T) {
 	}
 }
 
+func TestTagCmd_DirectoryExpansion(t *testing.T) {
+	// Test the new directory expansion functionality
+	testDir := t.TempDir()
+
+	// Create test files in nested structure
+	testFiles := []string{
+		"video1.mp4",
+		"video2.avi",
+		"subfolder/video3.mkv",
+		"subfolder/nested/video4.mov",
+		"already_processed_[1920x1080][45min][12345678].mp4",
+		"document.txt", // Non-video file
+	}
+
+	for _, file := range testFiles {
+		fullPath := filepath.Join(testDir, file)
+		dir := filepath.Dir(fullPath)
+
+		// Create directory if needed
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+
+		// Create empty file
+		if err := os.WriteFile(fullPath, []byte("test content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", fullPath, err)
+		}
+	}
+
+	// Create TagCmd and test directory expansion
+	tagCmd := &cmd.TagCmd{
+		Files: []string{testDir},
+	}
+
+	// Test expandDirectories method
+	expandedFiles, err := tagCmd.ExpandDirectories()
+	if err != nil {
+		t.Fatalf("expandDirectories() error = %v", err)
+	}
+
+	// Should find only unprocessed video files
+	expectedFiles := []string{
+		filepath.Join(testDir, "video1.mp4"),
+		filepath.Join(testDir, "video2.avi"),
+		filepath.Join(testDir, "subfolder/video3.mkv"),
+		filepath.Join(testDir, "subfolder/nested/video4.mov"),
+	}
+
+	if len(expandedFiles) != len(expectedFiles) {
+		t.Errorf("Expected %d files, got %d", len(expectedFiles), len(expandedFiles))
+		t.Logf("Found files: %v", expandedFiles)
+		t.Logf("Expected files: %v", expectedFiles)
+	}
+
+	// Convert to maps for easier comparison
+	foundMap := make(map[string]bool)
+	for _, file := range expandedFiles {
+		foundMap[file] = true
+	}
+
+	for _, expected := range expectedFiles {
+		if !foundMap[expected] {
+			t.Errorf("Expected file not found: %s", expected)
+		}
+	}
+}
+
+func TestTagCmd_MixedFilesAndDirectories(t *testing.T) {
+	// Test mixed file and directory arguments
+	testDir := t.TempDir()
+
+	// Create a directory with video files
+	subDir := filepath.Join(testDir, "videos")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	dirVideo := filepath.Join(subDir, "dir_video.mp4")
+	if err := os.WriteFile(dirVideo, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Create a standalone file
+	standaloneFile := filepath.Join(testDir, "standalone.avi")
+	if err := os.WriteFile(standaloneFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Create TagCmd with mixed arguments
+	tagCmd := &cmd.TagCmd{
+		Files: []string{subDir, standaloneFile},
+	}
+
+	// Test expandDirectories method
+	expandedFiles, err := tagCmd.ExpandDirectories()
+	if err != nil {
+		t.Fatalf("expandDirectories() error = %v", err)
+	}
+
+	// Should find both the directory video and standalone file
+	expectedFiles := []string{dirVideo, standaloneFile}
+
+	if len(expandedFiles) != len(expectedFiles) {
+		t.Errorf("Expected %d files, got %d", len(expectedFiles), len(expandedFiles))
+		t.Logf("Found files: %v", expandedFiles)
+		t.Logf("Expected files: %v", expectedFiles)
+	}
+
+	// Convert to maps for easier comparison
+	foundMap := make(map[string]bool)
+	for _, file := range expandedFiles {
+		foundMap[file] = true
+	}
+
+	for _, expected := range expectedFiles {
+		if !foundMap[expected] {
+			t.Errorf("Expected file not found: %s", expected)
+		}
+	}
+}
+
 // Integration test that verifies the full CLI pipeline
 func TestCLI_Integration(t *testing.T) {
 	// Create a temporary test file

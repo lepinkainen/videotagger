@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 
@@ -21,6 +22,13 @@ func (cmd *TagCmd) Run(appCtx *types.AppContext) error {
 	if appCtx != nil {
 		version = appCtx.Version
 	}
+
+	// Expand directories to video files
+	expandedFiles, err := cmd.ExpandDirectories()
+	if err != nil {
+		return fmt.Errorf("failed to expand directories: %w", err)
+	}
+	cmd.Files = expandedFiles
 	// Set default worker count based on drive type
 	workers := cmd.Workers
 	if workers <= 0 {
@@ -95,3 +103,30 @@ func (cmd *TagCmd) runWithTUI(workers int, version string) error {
 }
 
 // TODO: Complete TUI implementation in future phase
+
+// ExpandDirectories expands any directory arguments into lists of video files
+func (cmd *TagCmd) ExpandDirectories() ([]string, error) {
+	var expandedFiles []string
+
+	for _, path := range cmd.Files {
+		// Check if path exists
+		fi, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("cannot access %s: %w", path, err)
+		}
+
+		if fi.IsDir() {
+			// Directory: find all unprocessed video files recursively
+			videoFiles, err := video.FindVideoFilesRecursively(path)
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan directory %s: %w", path, err)
+			}
+			expandedFiles = append(expandedFiles, videoFiles...)
+		} else {
+			// Regular file: add as-is
+			expandedFiles = append(expandedFiles, path)
+		}
+	}
+
+	return expandedFiles, nil
+}
