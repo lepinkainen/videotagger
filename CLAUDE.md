@@ -94,6 +94,7 @@ for i := 0; i < workers; i++ {
 - **Test**: `task test` - Runs `go test -v ./...` with comprehensive test suite
 - **Lint**: `task lint` - Uses `golangci-lint run ./...` (no custom config)
 - **Install**: `task publish` - Copies `build/videotagger` to `$HOME/bin`
+- **Test Files**: `task gen-test-files` - Generates test video files in `/tmp/videotagger-test-*` for testing commands
 
 ### File Organization
 

@@ -485,6 +485,11 @@ func TestIsNetworkDrive(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "macOS system network volume",
+			path:     "/System/Volumes/Data/Network/Servers/forge.local/mnt/user/storage/video.mp4",
+			expected: true,
+		},
+		{
 			name:     "Windows UNC path",
 			path:     "//server/share/video.mp4",
 			expected: true,

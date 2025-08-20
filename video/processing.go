@@ -35,8 +35,8 @@ func (pw *progressWriter) render() {
 	for {
 		select {
 		case <-pw.done:
-			// Final render at 100%
-			fmt.Printf("\r%s", pw.prog.ViewAs(1.0))
+			// Show 100% progress before clearing
+			fmt.Printf("\r%s\n", pw.prog.ViewAs(1.0))
 			return
 		case <-ticker.C:
 			if pw.current > 0 {
@@ -131,13 +131,12 @@ func ProcessVideoFile(videoFile string) {
 	newFilename := fmt.Sprintf("%s_[%s][%.0fmin][%08X]%s", videoFile[0:len(videoFile)-len(ext)], resolution, durationMins, crc, ext)
 
 	progressWriter.done <- true
-	fmt.Printf("\n")
 
 	// Rename the file
 	if err := os.Rename(videoFile, newFilename); err != nil {
 		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error renaming file: %v", err)))
 	} else {
-		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", newFilename)))
+		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(newFilename))))
 	}
 }
 

@@ -22,7 +22,7 @@ tasks:
           tag=$(git describe --tags 2>/dev/null || echo "dev")
           commit=$(git log -n 1 --format=%h)
           if [ "$tag" = "dev" ]; then
-            echo "dev-$commit"
+            echo "dev-$(date '+%Y-%m-%d_%H:%M:%S')"
           else
             echo "$tag-$commit"
           fi
@@ -41,7 +41,7 @@ tasks:
           tag=$(git describe --tags 2>/dev/null || echo "dev")
           commit=$(git log -n 1 --format=%h)
           if [ "$tag" = "dev" ]; then
-            echo "dev-$commit"
+            echo "dev-$(date '+%Y-%m-%d_%H:%M:%S')"
           else
             echo "$tag-$commit"
           fi
@@ -60,7 +60,7 @@ tasks:
           tag=$(git describe --tags 2>/dev/null || echo "dev")
           commit=$(git log -n 1 --format=%h)
           if [ "$tag" = "dev" ]; then
-            echo "dev-$commit"
+            echo "dev-$(date '+%Y-%m-%d_%H:%M:%S')"
           else
             echo "$tag-$commit"
           fi
@@ -116,3 +116,46 @@ tasks:
     generates:
       - go.mod
       - go.sum
+
+  gen-test-files:
+    desc: Generate test video files in temporary directory for testing
+    cmds:
+      - |
+        TESTDIR="/tmp/videotagger-test-$(date +%s)"
+        mkdir -p "$TESTDIR"
+        echo "📁 Creating test files in: $TESTDIR"
+        
+        # Create test video files using FFmpeg (if available)
+        if command -v ffmpeg >/dev/null 2>&1; then
+          echo "🎬 Generating test videos with FFmpeg..."
+          # Create a 5-second 720p test video
+          ffmpeg -f lavfi -i testsrc=duration=5:size=1280x720:rate=30 -c:v libx264 -t 5 "$TESTDIR/test_720p.mp4" -y -loglevel quiet
+          # Create a 3-second 1080p test video  
+          ffmpeg -f lavfi -i testsrc=duration=3:size=1920x1080:rate=30 -c:v libx264 -t 3 "$TESTDIR/test_1080p.mp4" -y -loglevel quiet
+          # Create a duplicate of the 720p video
+          cp "$TESTDIR/test_720p.mp4" "$TESTDIR/duplicate_720p.mp4"
+          echo "✅ Generated 3 test video files"
+        else
+          echo "⚠️  FFmpeg not found, creating placeholder files..."
+          # Create placeholder files that look like videos but won't process
+          touch "$TESTDIR/test_720p.mp4"
+          touch "$TESTDIR/test_1080p.mp4" 
+          touch "$TESTDIR/duplicate_720p.mp4"
+          echo "⚠️  Created placeholder files (install FFmpeg for real videos)"
+        fi
+        
+        # Create some non-video files to test filtering
+        echo "test content" > "$TESTDIR/readme.txt"
+        echo "more content" > "$TESTDIR/document.pdf"
+        
+        echo ""
+        echo "🧪 Test directory ready: $TESTDIR"
+        echo "📋 Files created:"
+        ls -la "$TESTDIR"
+        echo ""
+        echo "🚀 Test commands:"
+        echo "   ./build/videotagger tag $TESTDIR/*.mp4"
+        echo "   ./build/videotagger duplicates $TESTDIR"
+        echo "   ./build/videotagger verify $TESTDIR/*_[*].mp4"
+        echo ""
+        echo "🗑️  Cleanup when done: rm -rf $TESTDIR"

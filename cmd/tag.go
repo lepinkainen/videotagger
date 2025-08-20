@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/lepinkainen/videotagger/types"
 	"github.com/lepinkainen/videotagger/ui"
 	"github.com/lepinkainen/videotagger/utils"
 	"github.com/lepinkainen/videotagger/video"
@@ -15,8 +16,11 @@ type TagCmd struct {
 	Workers int      `help:"Number of parallel workers" default:"0"`
 }
 
-func (cmd *TagCmd) Run() error {
-	version := "dev" // TODO: Pass version from main package
+func (cmd *TagCmd) Run(appCtx *types.AppContext) error {
+	version := types.DefaultVersion
+	if appCtx != nil {
+		version = appCtx.Version
+	}
 	// Set default worker count based on drive type
 	workers := cmd.Workers
 	if workers <= 0 {

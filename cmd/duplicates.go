@@ -4,16 +4,21 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lepinkainen/videotagger/types"
 	"github.com/lepinkainen/videotagger/ui"
 	"github.com/lepinkainen/videotagger/video"
 )
 
 type DuplicatesCmd struct {
 	Directory string `arg:"" name:"directory" help:"Directory to scan for duplicates" type:"existingdir" default:"."`
+	NoTUI     bool   `name:"no-tui" help:"Disable interactive TUI and just list duplicates"`
 }
 
-func (cmd *DuplicatesCmd) Run() error {
-	version := "dev" // TODO: Pass version from main package
+func (cmd *DuplicatesCmd) Run(appCtx *types.AppContext) error {
+	version := types.DefaultVersion
+	if appCtx != nil {
+		version = appCtx.Version
+	}
 	fmt.Println(ui.HeaderStyle.Render(fmt.Sprintf("Video Tagger %s", version)))
 	fmt.Printf("Scanning %s for duplicates...\n", cmd.Directory)
 
@@ -24,6 +29,18 @@ func (cmd *DuplicatesCmd) Run() error {
 
 	if len(duplicates) == 0 {
 		fmt.Printf("%s\n", ui.SuccessStyle.Render("✅ No duplicates found"))
+		return nil
+	}
+
+	// If no-tui flag is set, just list the duplicates
+	if cmd.NoTUI {
+		fmt.Printf("\n%s\n", ui.InfoStyle.Render(fmt.Sprintf("Found %d group(s) of duplicates:", len(duplicates))))
+		for hash, files := range duplicates {
+			fmt.Printf("\n🔸 Hash %s (%d files):\n", hash, len(files))
+			for _, file := range files {
+				fmt.Printf("  %s\n", file)
+			}
+		}
 		return nil
 	}
 

@@ -19,9 +19,10 @@ func IsNetworkDrive(filePath string) bool {
 
 	// Check common network mount prefixes on different platforms
 	networkPrefixes := []string{
-		"/mnt/",     // Linux NFS/SMB mounts
-		"/media/",   // Linux removable/network media
-		"/Volumes/", // macOS network volumes
+		"/mnt/",                         // Linux NFS/SMB mounts
+		"/media/",                       // Linux removable/network media
+		"/Volumes/",                     // macOS network volumes
+		"/System/Volumes/Data/Network/", // macOS network volumes (newer systems)
 	}
 
 	for _, prefix := range networkPrefixes {
