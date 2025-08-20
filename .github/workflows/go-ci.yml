@@ -6,14 +6,17 @@ name: Go CI
     branches: [main, feature/kong-phash]
   pull_request:
     branches: [main, feature/kong-phash]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@70a5ac30729c76bd992157778526e6eb5e390073
-        # v4.5.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        # v5.0.0
 
       - name: Set up Go
         uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
@@ -44,8 +47,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@70a5ac30729c76bd992157778526e6eb5e390073
-        # v4.5.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        # v5.0.0
 
       - name: Set up Go
         uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
@@ -66,8 +69,8 @@ jobs:
     needs: [test, lint]
 
     steps:
-      - uses: actions/checkout@70a5ac30729c76bd992157778526e6eb5e390073
-        # v4.5.0
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        # v5.0.0
 
       - name: Set up Go
         uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
