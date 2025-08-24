@@ -147,8 +147,8 @@ func TestKongParsing_TagCommand(t *testing.T) {
 	// Create the test files
 	_ = os.WriteFile(testFile1, []byte("test"), 0644)
 	_ = os.WriteFile(testFile2, []byte("test"), 0644)
-	defer os.Remove(testFile1)
-	defer os.Remove(testFile2)
+	defer func() { _ = os.Remove(testFile1) }()
+	defer func() { _ = os.Remove(testFile2) }()
 
 	// Test parsing the tag command
 	testCases := []struct {
@@ -260,8 +260,8 @@ func TestKongParsing_VerifyCommand(t *testing.T) {
 	// Create the test files
 	_ = os.WriteFile(testFile1, []byte("test"), 0644)
 	_ = os.WriteFile(testFile2, []byte("test"), 0644)
-	defer os.Remove(testFile1)
-	defer os.Remove(testFile2)
+	defer func() { _ = os.Remove(testFile1) }()
+	defer func() { _ = os.Remove(testFile2) }()
 
 	// Test parsing the verify command
 	testCases := []struct {

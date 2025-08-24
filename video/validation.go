@@ -7,7 +7,7 @@ import (
 )
 
 // wasProcessedRegex matches files that have already been processed with metadata
-var wasProcessedRegex = regexp.MustCompile(`_\[(\d+x\d+)\]\[(\d+)min\]\[([a-fA-F0-9]{8})\]\.[^\.]*$`)
+var wasProcessedRegex = regexp.MustCompile(`_\[(\d+x\d+)\]\[(\d+)min\]\[([a-fA-F0-9]{8})\]\.[^.]*$`)
 
 // IsVideoFile checks if the given file extension is one of known video file extensions
 func IsVideoFile(path string) bool {

@@ -19,7 +19,7 @@ func CalculateCRC32(filename string) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := crc32.NewIEEE()
 	if _, err := io.Copy(h, f); err != nil {
@@ -33,7 +33,7 @@ func CalculateCRC32(filename string) (uint32, error) {
 func CalculateVideoPerceptualHash(videoFile string) (*goimagehash.ImageHash, error) {
 	// Create temporary file for extracted frame
 	tempFrame := filepath.Join(os.TempDir(), fmt.Sprintf("frame_%d.jpg", os.Getpid()))
-	defer os.Remove(tempFrame)
+	defer func() { _ = os.Remove(tempFrame) }()
 
 	// Extract frame at 30% through the video
 	cmd := exec.Command("ffmpeg", "-i", videoFile, "-ss", "00:00:30", "-vframes", "1", "-f", "image2", "-y", tempFrame)
@@ -51,7 +51,7 @@ func CalculateVideoPerceptualHash(videoFile string) (*goimagehash.ImageHash, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to open extracted frame: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	img, _, err := image.Decode(file)
 	if err != nil {

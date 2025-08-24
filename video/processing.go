@@ -51,7 +51,7 @@ func calculateFileHash(videoFile string, progressWriter io.Writer) (uint32, erro
 	if err != nil {
 		return 0, fmt.Errorf("failed to open file for hash calculation: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := crc32.NewIEEE()
 	var writers []io.Writer

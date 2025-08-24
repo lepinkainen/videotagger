@@ -126,8 +126,8 @@ func TestCalculateCRC32_LargeFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	defer f.Close()
-	defer os.Remove(testFile)
+	defer func() { _ = f.Close() }()
+	defer func() { _ = os.Remove(testFile) }()
 
 	// Write 1MB of test data
 	data := make([]byte, 1024) // 1KB chunk
@@ -143,7 +143,9 @@ func TestCalculateCRC32_LargeFile(t *testing.T) {
 		}
 		h.Write(data)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Failed to close test file: %v", err)
+	}
 
 	expected := h.Sum32()
 

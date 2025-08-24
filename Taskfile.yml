@@ -86,7 +86,7 @@ tasks:
 
   test:
     cmds:
-      - go test -v ./...
+      - go test ./...
     sources:
       - ./*.go
 
@@ -143,7 +143,7 @@ tasks:
         TESTDIR="/tmp/videotagger-test-$(date +%s)"
         mkdir -p "$TESTDIR"
         echo "📁 Creating test files in: $TESTDIR"
-        
+
         # Create test video files using FFmpeg (if available)
         if command -v ffmpeg >/dev/null 2>&1; then
           echo "🎬 Generating test videos with FFmpeg..."
@@ -162,11 +162,11 @@ tasks:
           touch "$TESTDIR/duplicate_720p.mp4"
           echo "⚠️  Created placeholder files (install FFmpeg for real videos)"
         fi
-        
+
         # Create some non-video files to test filtering
         echo "test content" > "$TESTDIR/readme.txt"
         echo "more content" > "$TESTDIR/document.pdf"
-        
+
         echo ""
         echo "🧪 Test directory ready: $TESTDIR"
         echo "📋 Files created:"
