@@ -7,7 +7,7 @@ name: Go CI
   pull_request:
     branches: [main, feature/kong-phash]
   schedule:
-    # Run nightly at 2 AM UTC
+    # Run nightly at 02:00 UTC
     - cron: "0 2 * * *"
 
 jobs:
