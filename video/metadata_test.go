@@ -333,3 +333,117 @@ func TestWithRealVideoFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestGetVideoCodec tests the codec detection functionality
+func TestGetVideoCodec(t *testing.T) {
+	// Test with a fake video file (text file with .mp4 extension)
+	testDir := t.TempDir()
+	testFile := filepath.Join(testDir, "fake_video.mp4")
+
+	err := os.WriteFile(testFile, []byte("This is not a video file"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer os.Remove(testFile)
+
+	// This should fail because it's not a real video file
+	_, err = GetVideoCodec(testFile)
+	if err == nil {
+		t.Error("GetVideoCodec() expected error for non-video file, got nil")
+	}
+
+	// Check that error message contains useful information
+	if !strings.Contains(err.Error(), "failed to get codec") {
+		t.Errorf("Expected error to contain 'failed to get codec', got: %v", err)
+	}
+}
+
+func TestGetVideoCodecNonExistentFile(t *testing.T) {
+	_, err := GetVideoCodec("nonexistent.mp4")
+	if err == nil {
+		t.Error("Expected error for non-existent file")
+	}
+}
+
+func TestGetVideoCodecWithRealFiles(t *testing.T) {
+	// Test with real video files if available
+	testFilesDir := "../test_files"
+	if _, err := os.Stat(testFilesDir); os.IsNotExist(err) {
+		t.Skip("No test_files directory found, skipping real video file codec tests")
+	}
+
+	entries, err := os.ReadDir(testFilesDir)
+	if err != nil {
+		t.Skip("Cannot read test_files directory, skipping codec tests")
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && IsVideoFile(entry.Name()) {
+			testFile := filepath.Join(testFilesDir, entry.Name())
+
+			codec, err := GetVideoCodec(testFile)
+			if err != nil {
+				t.Logf("GetVideoCodec failed for %s (expected if no FFmpeg): %v", entry.Name(), err)
+			} else {
+				t.Logf("File: %s, Codec: %s", entry.Name(), codec)
+
+				// Codec should be a reasonable non-empty string
+				if codec == "" {
+					t.Errorf("Expected non-empty codec for %s", entry.Name())
+				}
+			}
+		}
+	}
+}
+
+func TestGetFileSize(t *testing.T) {
+	// Create a temporary test file
+	tempFile, err := os.CreateTemp("", "test_size_*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Write some content
+	testContent := "hello world"
+	if _, err := tempFile.WriteString(testContent); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tempFile.Close()
+
+	size, err := GetFileSize(tempFile.Name())
+	if err != nil {
+		t.Errorf("Failed to get file size: %v", err)
+	}
+
+	expectedSize := int64(len(testContent))
+	if size != expectedSize {
+		t.Errorf("Expected size %d, got %d", expectedSize, size)
+	}
+}
+
+func TestGetFileSizeNonExistentFile(t *testing.T) {
+	_, err := GetFileSize("nonexistent.txt")
+	if err == nil {
+		t.Error("Expected error for non-existent file")
+	}
+}
+
+func TestGetFileSizeZeroFile(t *testing.T) {
+	// Create an empty file
+	tempFile, err := os.CreateTemp("", "test_empty_*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+	tempFile.Close()
+
+	size, err := GetFileSize(tempFile.Name())
+	if err != nil {
+		t.Errorf("Failed to get file size for empty file: %v", err)
+	}
+
+	if size != 0 {
+		t.Errorf("Expected size 0 for empty file, got %d", size)
+	}
+}

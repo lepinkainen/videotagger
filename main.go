@@ -23,6 +23,7 @@ type CLI struct {
 	Duplicates *cmd.DuplicatesCmd `cmd:"" help:"Find duplicate files by hash"`
 	Verify     *cmd.VerifyCmd     `cmd:"" help:"Verify file hash integrity"`
 	Phash      *cmd.PhashCmd      `cmd:"" help:"Find perceptually similar videos"`
+	Reencode   *cmd.ReencodeCmd   `cmd:"" help:"Re-encode videos to H.265/HEVC for space savings"`
 	Version    *VersionCmd        `cmd:"" help:"Show version information"`
 }
 
