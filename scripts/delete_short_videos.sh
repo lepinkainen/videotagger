@@ -42,7 +42,9 @@ fd --type f \
 
   # Use awk for floating point comparison (no external bc dependency)
   if awk "BEGIN { exit !($duration < $MAX_SECONDS) }"; then
-    printf "🗑️  Deleting '%s' (%.1fs)\n" "$file" "$duration"
+    # Get file size in megabytes
+    file_size_mb=$(stat -f %z "$file" | awk '{printf "%.1f", $1/1024/1024}')
+    printf "🗑️  Deleting '%s' (%.1fs, %sMB)\n" "$file" "$duration" "$file_size_mb"
     rm "$file"
   fi
 done
