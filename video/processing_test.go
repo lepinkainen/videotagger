@@ -238,7 +238,7 @@ func TestRenameVideoFile(t *testing.T) {
 func TestProcessVideoFileCore_Directory(t *testing.T) {
 	testDir := t.TempDir()
 
-	result := processVideoFileCore(testDir)
+	result := processVideoFileCore(testDir, nil)
 
 	if result.Error != nil {
 		t.Errorf("Unexpected error: %v", result.Error)
@@ -266,7 +266,7 @@ func TestProcessVideoFileCore_NonVideoFile(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	result := processVideoFileCore(testFile)
+	result := processVideoFileCore(testFile, nil)
 
 	if result.Error != nil {
 		t.Errorf("Unexpected error: %v", result.Error)
@@ -294,7 +294,7 @@ func TestProcessVideoFileCore_AlreadyProcessed(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	result := processVideoFileCore(processedFile)
+	result := processVideoFileCore(processedFile, nil)
 
 	if result.Error != nil {
 		t.Errorf("Unexpected error: %v", result.Error)
@@ -316,7 +316,7 @@ func TestProcessVideoFileCore_AlreadyProcessed(t *testing.T) {
 func TestProcessVideoFileCore_NonExistentFile(t *testing.T) {
 	nonExistentFile := "/path/to/nonexistent/video.mp4"
 
-	result := processVideoFileCore(nonExistentFile)
+	result := processVideoFileCore(nonExistentFile, nil)
 
 	if result.Error == nil {
 		t.Error("Expected error for non-existent file")
@@ -342,7 +342,7 @@ func TestProcessVideoFileCore_ValidVideoFile(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	result := processVideoFileCore(testFile)
+	result := processVideoFileCore(testFile, nil)
 
 	// This will likely fail because it's not a real video file
 	// In a real scenario with FFmpeg available and real video files,

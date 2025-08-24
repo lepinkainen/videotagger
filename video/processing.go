@@ -80,7 +80,7 @@ func renameVideoFile(oldPath, newPath string) error {
 }
 
 // processVideoFileCore handles the core logic of processing a video file without side effects
-func processVideoFileCore(videoFile string) *ProcessingResult {
+func processVideoFileCore(videoFile string, progressWriter io.Writer) *ProcessingResult {
 	result := &ProcessingResult{
 		OriginalPath: videoFile,
 	}
@@ -121,8 +121,8 @@ func processVideoFileCore(videoFile string) *ProcessingResult {
 	}
 	result.Metadata = metadata
 
-	// Calculate file hash without progress tracking for pure function
-	crc, err := calculateFileHash(videoFile, nil)
+	// Calculate file hash with optional progress tracking
+	crc, err := calculateFileHash(videoFile, progressWriter)
 	if err != nil {
 		result.Error = err
 		return result
@@ -145,7 +145,35 @@ func processVideoFileCore(videoFile string) *ProcessingResult {
 
 // ProcessVideoFile handles the processing of a single video file with console output
 func ProcessVideoFile(videoFile string) {
-	result := processVideoFileCore(videoFile)
+	// Get file info upfront for progress tracking
+	fileInfo, err := os.Stat(videoFile)
+	if err != nil {
+		fmt.Printf("%s\n", errorStyle.Render(fmt.Sprintf("❌ Error accessing %s: %v", videoFile, err)))
+		return
+	}
+	fileSize := fileInfo.Size()
+
+	// Create a custom progress bar with lipgloss styling
+	prog := progress.New(progress.WithDefaultGradient())
+	fmt.Printf("%s\n", processingStyle.Render(fmt.Sprintf("📊 Processing: %s", videoFile)))
+
+	// Create a progress writer for visual feedback
+	progressWriter := &progressWriter{
+		total: fileSize,
+		prog:  prog,
+		done:  make(chan bool),
+	}
+	go progressWriter.render()
+
+	// Process the file with progress tracking
+	result := processVideoFileCore(videoFile, progressWriter)
+	progressWriter.done <- true
+
+	// Safety check for nil result
+	if result == nil {
+		fmt.Printf("❌ Error: processVideoFileCore returned nil for %s\n", videoFile)
+		return
+	}
 
 	// Handle the result with appropriate console output
 	if result.Error != nil {
@@ -164,26 +192,6 @@ func ProcessVideoFile(videoFile string) {
 		}
 		return
 	}
-
-	// For successful processing, show progress and results
-	fileInfo, _ := os.Stat(videoFile)
-	fileSize := fileInfo.Size()
-
-	// Create a custom progress bar with lipgloss styling
-	prog := progress.New(progress.WithDefaultGradient())
-	fmt.Printf("%s\n", processingStyle.Render(fmt.Sprintf("📊 Processing: %s", videoFile)))
-
-	// Create a progress writer for visual feedback
-	progressWriter := &progressWriter{
-		total: fileSize,
-		prog:  prog,
-		done:  make(chan bool),
-	}
-	go progressWriter.render()
-
-	// Recalculate hash with progress tracking for UI
-	_, _ = calculateFileHash(videoFile, progressWriter)
-	progressWriter.done <- true
 
 	if result.WasRenamed {
 		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(result.NewPath))))
