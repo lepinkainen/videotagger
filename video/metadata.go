@@ -2,6 +2,7 @@ package video
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -46,4 +47,30 @@ func GetVideoDuration(videoFile string) (float64, error) {
 	}
 
 	return durationSecs / 60, nil
+}
+
+// GetVideoCodec extracts the video codec using ffprobe
+func GetVideoCodec(videoFile string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", videoFile)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get codec: %w", err)
+	}
+
+	codec := strings.TrimSpace(string(output))
+	if codec == "" {
+		return "", fmt.Errorf("could not detect video codec")
+	}
+
+	return codec, nil
+}
+
+// GetFileSize returns the size of a file in bytes
+func GetFileSize(filePath string) (int64, error) {
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file size: %w", err)
+	}
+	return fi.Size(), nil
 }
