@@ -81,7 +81,9 @@ jobs:
         run: |
           cd build
           EXECUTABLE="videotagger${{ matrix.suffix }}"
-          mv videotagger "$EXECUTABLE"
+          if [ "${{ matrix.suffix }}" != "" ]; then
+            mv videotagger "$EXECUTABLE"
+          fi
           
           # Create a checksum
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
