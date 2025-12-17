@@ -28,10 +28,6 @@ jobs:
             goos: darwin
             goarch: arm64
             suffix: "-macos-arm64"
-          - os: windows-latest
-            goos: windows
-            goarch: amd64
-            suffix: ".exe"
 
     steps:
       - uses: actions/checkout@v5
@@ -54,11 +50,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install ffmpeg
-
-      - name: Install FFmpeg (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install ffmpeg
 
       - name: Get version from git tag
         id: version
@@ -129,7 +120,6 @@ jobs:
             - **Linux (ARM64)**: `videotagger-arm64`
             - **macOS (Intel)**: `videotagger-macos`
             - **macOS (Apple Silicon)**: `videotagger-macos-arm64`
-            - **Windows (x64)**: `videotagger.exe`
             
             Each executable includes a corresponding `.sha256` file for verification.
             
