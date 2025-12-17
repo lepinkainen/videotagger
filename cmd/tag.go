@@ -12,11 +12,15 @@ import (
 	"github.com/lepinkainen/videotagger/video"
 )
 
+// TagCmd tags video files with metadata including resolution, duration, and CRC32 hash.
+// It renames files with the format: filename_[resolution][duration][CRC32].ext
 type TagCmd struct {
 	Files   []string `arg:"" name:"files" help:"Video files to process" type:"path"`
 	Workers int      `help:"Number of parallel workers" default:"0"`
 }
 
+// Run executes the tag command, processing files with parallel workers.
+// If appCtx is nil, uses default version information.
 func (cmd *TagCmd) Run(appCtx *types.AppContext) error {
 	version := types.DefaultVersion
 	if appCtx != nil {

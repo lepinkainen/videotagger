@@ -9,11 +9,15 @@ import (
 	"github.com/lepinkainen/videotagger/video"
 )
 
+// DuplicatesCmd finds duplicate video files by comparing CRC32 hashes embedded in filenames.
+// Files must have been previously tagged with the tag command to include hash information.
 type DuplicatesCmd struct {
 	Directory string `arg:"" name:"directory" help:"Directory to scan for duplicates" type:"existingdir" default:"."`
 	NoTUI     bool   `name:"no-tui" help:"Disable interactive TUI and just list duplicates"`
 }
 
+// Run executes the duplicates command and displays results either in an interactive TUI
+// or as a simple list depending on the NoTUI flag.
 func (cmd *DuplicatesCmd) Run(appCtx *types.AppContext) error {
 	version := types.DefaultVersion
 	if appCtx != nil {

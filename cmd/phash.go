@@ -8,11 +8,16 @@ import (
 	"github.com/lepinkainen/videotagger/video"
 )
 
+// PhashCmd finds perceptually similar videos using frame-based perceptual hashing.
+// This command compares video frames extracted from each file to identify videos
+// that appear similar even if they differ in encoding or resolution.
 type PhashCmd struct {
 	Files     []string `arg:"" name:"files" help:"Video files to compare" type:"existingfile"`
 	Threshold int      `help:"Hamming distance threshold for similarity (0-64)" default:"10"`
 }
 
+// Run executes the perceptual hash comparison command, comparing all pairs of videos
+// and reporting any that fall within the similarity threshold (lower distance = more similar).
 func (cmd *PhashCmd) Run() error {
 	if len(cmd.Files) < 2 {
 		fmt.Printf("%s\n", ui.ErrorStyle.Render("❌ Need at least 2 files to compare"))

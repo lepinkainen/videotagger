@@ -12,6 +12,8 @@ import (
 	"github.com/lepinkainen/videotagger/video"
 )
 
+// ReencodeCmd re-encodes video files to H.265 (HEVC) codec for improved compression.
+// It analyzes each file and only re-encodes if the resulting file is significantly smaller.
 type ReencodeCmd struct {
 	Files        []string `arg:"" name:"files" help:"Video files to re-encode" type:"path"`
 	Workers      int      `help:"Number of parallel workers" default:"0"`
@@ -22,6 +24,9 @@ type ReencodeCmd struct {
 	DryRun       bool     `help:"Show what would be processed without making changes"`
 }
 
+// Run executes the reencode command, processing files with FFmpeg to convert to H.265.
+// Files that don't meet the minimum savings threshold are reverted to their original version.
+// If appCtx is nil, uses default version information.
 func (cmd *ReencodeCmd) Run(appCtx *types.AppContext) error {
 	version := types.DefaultVersion
 	if appCtx != nil {

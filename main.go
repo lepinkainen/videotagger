@@ -11,6 +11,7 @@ import (
 
 var Version = "dev"
 
+// VersionCmd displays the application version
 type VersionCmd struct{}
 
 func (v *VersionCmd) Run() error {
@@ -18,6 +19,7 @@ func (v *VersionCmd) Run() error {
 	return nil
 }
 
+// CLI defines the command-line interface structure with all available commands
 type CLI struct {
 	Tag        *cmd.TagCmd        `cmd:"" help:"Tag video files with metadata and hash"`
 	Duplicates *cmd.DuplicatesCmd `cmd:"" help:"Find duplicate files by hash"`

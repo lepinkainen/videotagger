@@ -9,10 +9,14 @@ import (
 	"github.com/lepinkainen/videotagger/video"
 )
 
+// VerifyCmd verifies CRC32 checksums embedded in video filenames match the actual file contents.
+// Files must have been previously tagged to contain hash information in the filename.
 type VerifyCmd struct {
 	Files []string `arg:"" name:"files" help:"Video files to verify" type:"existingfile"`
 }
 
+// Run executes the verify command on all specified files, comparing embedded hashes
+// with recalculated CRC32 checksums to detect corruption or tampering.
 func (cmd *VerifyCmd) Run() error {
 	fmt.Printf("%s\n", ui.InfoStyle.Render(fmt.Sprintf("Verifying %d files...", len(cmd.Files))))
 
