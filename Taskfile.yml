@@ -80,6 +80,18 @@ tasks:
     generates:
       - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
 
+  build-go-cross:
+    desc: Build Go binary for cross-compilation (uses GOOS/GOARCH from env)
+    cmds:
+      - mkdir -p {{.BUILDDIR}}
+      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}} main.go
+    env:
+      CGO_ENABLED: "0"
+    sources:
+      - ./*.go
+    generates:
+      - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
+
   test-go:
     desc: Run Go tests
     cmds:

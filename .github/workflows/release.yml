@@ -1,0 +1,153 @@
+---
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            suffix: ""
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            suffix: "-arm64"
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            suffix: "-macos"
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            suffix: "-macos-arm64"
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            suffix: ".exe"
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Install FFmpeg (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install FFmpeg (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install ffmpeg
+
+      - name: Get version from git tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build for ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          task build-go
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          cd build
+          EXECUTABLE="videotagger${{ matrix.suffix }}"
+          mv videotagger "$EXECUTABLE"
+          
+          # Create a checksum
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            certutil -hashfile "$EXECUTABLE" SHA256 | grep -E "[0-9A-Fa-f]{64}" > "$EXECUTABLE.sha256"
+          else
+            shasum -a 256 "$EXECUTABLE" > "$EXECUTABLE.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: videotagger-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Release ${{ steps.version.outputs.version }}
+            
+            ### Downloads
+            - **Linux (x64)**: `videotagger`
+            - **Linux (ARM64)**: `videotagger-arm64`
+            - **macOS (Intel)**: `videotagger-macos`
+            - **macOS (Apple Silicon)**: `videotagger-macos-arm64`
+            - **Windows (x64)**: `videotagger.exe`
+            
+            Each executable includes a corresponding `.sha256` file for verification.
+            
+            ### Installation
+            Download the appropriate binary for your platform and make it executable (on Unix systems):
+            ```bash
+            chmod +x videotagger
+            ```
+            
+            ### Verification
+            Verify the integrity of the downloaded binary:
+            ```bash
+            sha256sum -c videotagger.sha256
+            ```
+          files: |
+            artifacts/videotagger-*/videotagger*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
