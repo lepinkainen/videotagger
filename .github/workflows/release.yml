@@ -44,11 +44,6 @@ jobs:
           go-version: "1.25"
           cache: true
 
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-
       - name: Install FFmpeg (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -76,8 +71,10 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
-          task build-go
+          mkdir -p build
+          go build -v -ldflags="-X main.Version=$VERSION" -o build/videotagger main.go
 
       - name: Prepare artifact
         shell: bash
