@@ -1,6 +1,9 @@
 package video
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -48,4 +51,46 @@ func ExtractHashFromFilename(filename string) (string, bool) {
 	// Return the last hash found
 	lastMatch := matches[len(matches)-1]
 	return lastMatch[1], true
+}
+
+// ValidateVideoIntegrity checks if a video file is corrupted or invalid
+// Returns an error if the file is corrupted or cannot be read
+func ValidateVideoIntegrity(filePath string) error {
+	// First check if file exists and is readable
+	if _, err := os.Stat(filePath); err != nil {
+		return fmt.Errorf("file not accessible: %w", err)
+	}
+
+	// Use ffprobe to check file integrity without extracting metadata
+	// We use a minimal probe to just validate the file structure
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "--", filePath)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		// Check for common corruption indicators
+		outputStr := string(output)
+		if strings.Contains(outputStr, "moov atom not found") {
+			return fmt.Errorf("video file is corrupted (missing metadata): %s", extractFirstLine(outputStr))
+		}
+		if strings.Contains(outputStr, "Invalid data found") ||
+			strings.Contains(outputStr, "corrupt") ||
+			strings.Contains(outputStr, "truncated") ||
+			strings.Contains(outputStr, "Invalid argument") {
+			return fmt.Errorf("video file is corrupted or invalid: %s", extractFirstLine(outputStr))
+		}
+
+		// Return generic ffprobe error with output
+		return fmt.Errorf("ffprobe error: %w\nOutput: %s", err, extractFirstLine(outputStr))
+	}
+
+	return nil
+}
+
+// extractFirstLine extracts just the first line from a multi-line string
+func extractFirstLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
+		return strings.TrimSpace(lines[0])
+	}
+	return "no additional information available"
 }

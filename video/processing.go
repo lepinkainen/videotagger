@@ -113,6 +113,12 @@ func processVideoFileCore(videoFile string, progressWriter io.Writer) *Processin
 		return result
 	}
 
+	// Validate video file integrity before processing
+	if integrityErr := ValidateVideoIntegrity(videoFile); integrityErr != nil {
+		result.Error = fmt.Errorf("video integrity check failed: %w", integrityErr)
+		return result
+	}
+
 	// Extract video metadata
 	metadata, err := extractVideoMetadata(videoFile)
 	if err != nil {
