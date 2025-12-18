@@ -29,8 +29,8 @@ func (pw *progressWriter) render() {
 	for {
 		select {
 		case <-pw.done:
-			// Show 100% progress before clearing
-			fmt.Printf("\r%s\n", pw.prog.ViewAs(1.0))
+			// Show 100% progress and clear the line for success message
+			fmt.Printf("\r%s", pw.prog.ViewAs(1.0))
 			return
 		case <-ticker.C:
 			if pw.current > 0 {

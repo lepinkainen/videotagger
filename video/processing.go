@@ -200,6 +200,6 @@ func ProcessVideoFile(videoFile string) {
 	}
 
 	if result.WasRenamed {
-		fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(result.NewPath))))
+		fmt.Printf("\n%s\n", successStyle.Render(fmt.Sprintf("✅ %s", filepath.Base(result.NewPath))))
 	}
 }

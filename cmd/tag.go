@@ -87,7 +87,7 @@ func (cmd *TagCmd) runWithTUI(workers int, version string) error {
 		go func(workerID int) {
 			defer wg.Done()
 			for videoFile := range jobs {
-				fmt.Printf("Worker %d: Processing %s\n", workerID+1, videoFile)
+				// Don't print worker messages to avoid interfering with progress bar
 				video.ProcessVideoFile(videoFile)
 			}
 		}(i)
