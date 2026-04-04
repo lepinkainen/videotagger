@@ -20,6 +20,7 @@ test_files/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+node_modules/
 
 # Go workspace file
 go.work
@@ -27,6 +28,8 @@ go.work
 # Build artifacts
 build/
 dist/
+!wails/frontend/dist/
+!wails/frontend/dist/.gitkeep
 
 # IDE files
 .vscode/

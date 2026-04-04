@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VideoTagger Duplicates</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">VT</span>
+          <div>
+            <h1>Duplicates Studio</h1>
+            <p>Scan, compare, and prune duplicate videos.</p>
+          </div>
+        </div>
+        <div class="controls">
+          <label class="field">
+            <span>Scan folder</span>
+            <div class="field-row">
+              <input id="directoryInput" type="text" placeholder="/Users/you/Videos" />
+              <button id="browseBtn" class="button ghost" type="button">Browse</button>
+            </div>
+          </label>
+          <button id="scanBtn" class="button primary" type="button">Run scan</button>
+        </div>
+      </header>
+
+      <section class="statusbar">
+        <div id="statusText" class="status">Ready.</div>
+        <div class="stats">
+          <span id="groupCount">0 groups</span>
+          <span id="selectedCount">0 selected</span>
+        </div>
+      </section>
+
+      <main class="layout">
+        <section class="panel groups">
+          <header>
+            <h2>Duplicate Groups</h2>
+            <p>CRC32 match clusters</p>
+          </header>
+          <div id="groupList" class="group-list"></div>
+        </section>
+
+        <section class="panel files">
+          <header>
+            <div>
+              <h2 id="groupTitle">Files</h2>
+              <p id="groupMeta">Select a group to begin.</p>
+            </div>
+            <div class="mini-actions">
+              <button id="selectAllBtn" class="chip" type="button">Select all</button>
+              <button id="clearBtn" class="chip" type="button">Clear</button>
+            </div>
+          </header>
+          <div id="fileList" class="file-list"></div>
+          <footer class="file-actions">
+            <div class="auto-select">
+              <span>Auto-select:</span>
+              <button class="chip" data-strategy="0" type="button">Keep newest</button>
+              <button class="chip" data-strategy="1" type="button">Keep oldest</button>
+              <button class="chip" data-strategy="2" type="button">Keep largest</button>
+              <button class="chip" data-strategy="3" type="button">Keep smallest</button>
+              <button class="chip" data-strategy="4" type="button">Keep first A-Z</button>
+              <button class="chip" data-strategy="5" type="button">Keep last A-Z</button>
+              <button class="chip" data-strategy="6" type="button">Keep first in list</button>
+              <button class="chip" data-strategy="7" type="button">Keep last in list</button>
+            </div>
+            <button id="deleteBtn" class="button danger" type="button">Delete selected</button>
+          </footer>
+        </section>
+
+        <section class="panel preview">
+          <header>
+            <h2>Preview</h2>
+            <p id="previewMeta">No file selected.</p>
+          </header>
+          <div id="previewPane" class="preview-pane">
+            <div class="preview-placeholder">Pick a file to see it here.</div>
+          </div>
+          <footer id="previewHint" class="preview-hint"></footer>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

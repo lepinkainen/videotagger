@@ -97,6 +97,26 @@ videotagger duplicates video1.mp4 video2.mp4 video3.mp4
 videotagger duplicates --workers 4 /path/to/videos/*
 ```
 
+### Duplicates UI (Wails, macOS MVP)
+
+Launch a GUI for the duplicates workflow (separate Wails app):
+
+```bash
+cd wails
+wails dev
+```
+
+For a production build:
+
+```bash
+cd wails
+wails build
+```
+
+Requires the Wails CLI and Node (for Vite) on macOS.
+
+The UI reuses the duplicate-finder logic and generates preview frames with `ffmpeg` when available.
+
 ### Verify Integrity
 
 Verify previously tagged video files:
