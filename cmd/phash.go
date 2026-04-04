@@ -52,7 +52,7 @@ func (cmd *PhashCmd) Run() error {
 	fmt.Printf("\n%s\n", ui.InfoStyle.Render(fmt.Sprintf("Comparing %d files for similarity (threshold: %d):", len(fileHashes), cmd.Threshold)))
 
 	found := false
-	for i := 0; i < len(fileHashes); i++ {
+	for i := range len(fileHashes) {
 		for j := i + 1; j < len(fileHashes); j++ {
 			distance, err := fileHashes[i].Hash.Distance(fileHashes[j].Hash)
 			if err != nil {

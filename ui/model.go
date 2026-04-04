@@ -74,7 +74,7 @@ func NewTUIModel(numFiles, numWorkers int, version string) TUIModel {
 
 	// Initialize workers state
 	workers := make(map[int]*WorkerState, numWorkers)
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		workers[i] = &WorkerState{
 			ID:     i,
 			Status: "idle",

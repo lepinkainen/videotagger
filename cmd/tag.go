@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/lepinkainen/videotagger/types"
@@ -37,15 +38,7 @@ func (cmd *TagCmd) Run(appCtx *types.AppContext) error {
 	workers := cmd.Workers
 	if workers <= 0 {
 		// Check if any files are on network drives
-		hasNetworkFiles := false
-		for _, file := range cmd.Files {
-			if utils.IsNetworkDrive(file) {
-				hasNetworkFiles = true
-				break
-			}
-		}
-
-		if hasNetworkFiles {
+		if slices.ContainsFunc(cmd.Files, utils.IsNetworkDrive) {
 			workers = 1 // Use single worker for network drives
 			fmt.Printf("⚠️  Network drive detected, using 1 worker for optimal performance\n")
 		} else {
@@ -82,7 +75,7 @@ func (cmd *TagCmd) runWithTUI(workers int, version string) error {
 	var wg sync.WaitGroup
 
 	// Start workers
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
