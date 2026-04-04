@@ -1,8 +1,6 @@
 package ui
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestNewDuplicatesModel(t *testing.T) {
 	duplicates := map[string][]string{
@@ -35,34 +33,24 @@ func TestNewDuplicatesModelEmptyInput(t *testing.T) {
 	}
 }
 
-func TestDuplicateGroupStructure(t *testing.T) {
-	duplicates := map[string][]string{
-		"ABC123": {"file1.mp4", "file2.mp4"},
+func TestFormatFileSize(t *testing.T) {
+	tests := []struct {
+		bytes    int64
+		expected string
+	}{
+		{100, "100 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1048576, "1.0 MB"},
+		{1572864, "1.5 MB"},
+		{1073741824, "1.0 GB"},
+		{2147483648, "2.0 GB"},
 	}
 
-	model := NewDuplicatesModel(duplicates)
-
-	if len(model.groups) != 1 {
-		t.Fatalf("Expected 1 group, got %d", len(model.groups))
-	}
-
-	group := model.groups[0]
-	if group.Hash != "ABC123" {
-		t.Errorf("Expected hash 'ABC123', got '%s'", group.Hash)
-	}
-
-	if len(group.Files) != 2 {
-		t.Errorf("Expected 2 files, got %d", len(group.Files))
-	}
-
-	if len(group.Selected) != 2 {
-		t.Errorf("Expected 2 selection states, got %d", len(group.Selected))
-	}
-
-	// Ensure no files are selected by default
-	for i, selected := range group.Selected {
-		if selected {
-			t.Errorf("Expected file %d to be unselected by default", i)
+	for _, tt := range tests {
+		result := formatFileSize(tt.bytes)
+		if result != tt.expected {
+			t.Errorf("formatFileSize(%d) = %s, expected %s", tt.bytes, result, tt.expected)
 		}
 	}
 }

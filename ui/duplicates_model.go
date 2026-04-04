@@ -2,28 +2,45 @@ package ui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lepinkainen/videotagger/duplicates"
 )
 
-// DuplicateGroup represents a group of duplicate files with the same hash
-type DuplicateGroup struct {
-	Hash         string
-	Files        []string
-	Selected     []bool   // which files are selected for deletion
-	DeletedFiles []string // files that have been successfully deleted
+// formatFileSize converts bytes to human-readable format
+func formatFileSize(bytes int64) string {
+	const (
+		KB = 1024
+		MB = 1024 * KB
+		GB = 1024 * MB
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }
 
 // DuplicatesModel represents the TUI model for duplicate file management
 type DuplicatesModel struct {
 	// Data
-	groups       []DuplicateGroup
+	groups       []duplicates.DuplicateGroup
 	currentGroup int
 	currentFile  int
+
+	// Global selection tracking
+	totalSelectedCount   int
+	groupsWithSelections map[int]int // groupIndex -> count of selected files
 
 	// UI state
 	width  int
@@ -39,30 +56,40 @@ type DuplicatesModel struct {
 }
 
 // NewDuplicatesModel creates a new duplicates TUI model
-func NewDuplicatesModel(duplicates map[string][]string) DuplicatesModel {
-	var groups []DuplicateGroup
-
-	for hash, files := range duplicates {
-		group := DuplicateGroup{
-			Hash:         hash,
-			Files:        files,
-			Selected:     make([]bool, len(files)),
-			DeletedFiles: make([]string, 0),
-		}
-		groups = append(groups, group)
-	}
+func NewDuplicatesModel(duplicatePaths map[string][]string) DuplicatesModel {
+	groups := duplicates.BuildGroups(duplicatePaths)
 
 	return DuplicatesModel{
-		groups:       groups,
-		currentGroup: 0,
-		currentFile:  0,
-		showHelp:     true,
+		groups:               groups,
+		currentGroup:         0,
+		currentFile:          0,
+		showHelp:             true,
+		totalSelectedCount:   0,
+		groupsWithSelections: make(map[int]int),
 	}
 }
 
 // Init implements tea.Model
 func (m DuplicatesModel) Init() tea.Cmd {
 	return nil
+}
+
+// recalculateSelectionStats recalculates the total selected count and groups with selections
+func (m *DuplicatesModel) recalculateSelectionStats() {
+	m.totalSelectedCount, m.groupsWithSelections = duplicates.RecalculateSelectionStats(m.groups)
+}
+
+// applyAutoSelectStrategy applies an auto-selection strategy to the current group
+// Selects all files EXCEPT the one to keep based on the strategy
+func (m *DuplicatesModel) applyAutoSelectStrategy(strategy duplicates.AutoSelectStrategy) {
+	if len(m.groups) == 0 {
+		return
+	}
+
+	group := &m.groups[m.currentGroup]
+	duplicates.ApplyAutoSelectStrategy(group, strategy)
+
+	m.recalculateSelectionStats()
 }
 
 // Update implements tea.Model
@@ -127,18 +154,21 @@ func (m DuplicatesModel) handleNormalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	case " ": // spacebar to toggle selection
 		group := &m.groups[m.currentGroup]
 		group.Selected[m.currentFile] = !group.Selected[m.currentFile]
+		m.recalculateSelectionStats()
 
 	case "a": // select all files in current group
 		group := &m.groups[m.currentGroup]
 		for i := range group.Selected {
 			group.Selected[i] = true
 		}
+		m.recalculateSelectionStats()
 
 	case "c": // clear all selections in current group
 		group := &m.groups[m.currentGroup]
 		for i := range group.Selected {
 			group.Selected[i] = false
 		}
+		m.recalculateSelectionStats()
 
 	case "s": // skip current group
 		if m.currentGroup < len(m.groups)-1 {
@@ -152,6 +182,24 @@ func (m DuplicatesModel) handleNormalInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 	case "enter":
 		return m.handleDeleteCommand()
+
+	// Auto-selection strategies (1-8)
+	case "1":
+		m.applyAutoSelectStrategy(duplicates.KeepNewest)
+	case "2":
+		m.applyAutoSelectStrategy(duplicates.KeepOldest)
+	case "3":
+		m.applyAutoSelectStrategy(duplicates.KeepLargest)
+	case "4":
+		m.applyAutoSelectStrategy(duplicates.KeepSmallest)
+	case "5":
+		m.applyAutoSelectStrategy(duplicates.KeepFirst)
+	case "6":
+		m.applyAutoSelectStrategy(duplicates.KeepLast)
+	case "7":
+		m.applyAutoSelectStrategy(duplicates.KeepFirstPosition)
+	case "8":
+		m.applyAutoSelectStrategy(duplicates.KeepLastPosition)
 	}
 
 	return m, nil
@@ -172,16 +220,7 @@ func (m DuplicatesModel) handleConfirmationInput(msg tea.KeyMsg) (tea.Model, tea
 }
 
 func (m DuplicatesModel) handleDeleteCommand() (tea.Model, tea.Cmd) {
-	var selectedFiles []string
-
-	// Collect selected files from ALL groups (not just current)
-	for _, group := range m.groups {
-		for i, selected := range group.Selected {
-			if selected {
-				selectedFiles = append(selectedFiles, group.Files[i])
-			}
-		}
-	}
+	selectedFiles := duplicates.CollectSelectedFiles(m.groups)
 
 	if len(selectedFiles) == 0 {
 		return m, nil // No files selected anywhere
@@ -194,14 +233,12 @@ func (m DuplicatesModel) handleDeleteCommand() (tea.Model, tea.Cmd) {
 
 func (m DuplicatesModel) executeDeleteCommand() tea.Cmd {
 	return func() tea.Msg {
-		for _, filePath := range m.pendingDeletion {
-			err := os.Remove(filePath)
-			if err != nil {
-				return DeletionCompleteMsg{
-					FilePath: filePath,
-					Success:  false,
-					Error:    err,
-				}
+		failedPath, err := duplicates.DeleteFiles(m.pendingDeletion)
+		if err != nil {
+			return DeletionCompleteMsg{
+				FilePath: failedPath,
+				Success:  false,
+				Error:    err,
 			}
 		}
 		return DeletionCompleteMsg{
@@ -214,54 +251,7 @@ func (m DuplicatesModel) executeDeleteCommand() tea.Cmd {
 
 func (m *DuplicatesModel) handleDeletionComplete(msg DeletionCompleteMsg) {
 	if msg.Success && msg.FilePath == "" {
-		// All files deleted successfully - process ALL groups that had deletions
-		var groupsToRemove []int
-
-		// Process each group to remove deleted files
-		for groupIndex := range m.groups {
-			group := &m.groups[groupIndex]
-
-			// Remove deleted files from this group
-			var remainingFiles []string
-			var remainingSelected []bool
-
-			for fileIndex, file := range group.Files {
-				deleted := false
-				for _, deletedFile := range m.pendingDeletion {
-					if file == deletedFile {
-						deleted = true
-						group.DeletedFiles = append(group.DeletedFiles, file)
-						break
-					}
-				}
-				if !deleted {
-					remainingFiles = append(remainingFiles, file)
-					// Preserve selection state for non-deleted files
-					remainingSelected = append(remainingSelected, group.Selected[fileIndex])
-				}
-			}
-
-			group.Files = remainingFiles
-			group.Selected = remainingSelected
-
-			// Mark groups with <= 1 file for removal
-			if len(group.Files) <= 1 {
-				groupsToRemove = append(groupsToRemove, groupIndex)
-			}
-		}
-
-		// Remove empty groups (in reverse order to maintain indices)
-		for i := len(groupsToRemove) - 1; i >= 0; i-- {
-			groupIndex := groupsToRemove[i]
-			m.groups = append(m.groups[:groupIndex], m.groups[groupIndex+1:]...)
-
-			// Adjust current group index if necessary
-			if m.currentGroup >= groupIndex {
-				if m.currentGroup > 0 {
-					m.currentGroup--
-				}
-			}
-		}
+		m.groups = duplicates.ApplyDeletion(m.groups, m.pendingDeletion)
 
 		// Handle case where all groups were removed
 		if len(m.groups) == 0 {
@@ -274,11 +264,10 @@ func (m *DuplicatesModel) handleDeletionComplete(msg DeletionCompleteMsg) {
 
 			// Ensure currentFile is valid for the current group
 			if m.currentFile >= len(m.groups[m.currentGroup].Files) {
-				m.currentFile = len(m.groups[m.currentGroup].Files) - 1
-				if m.currentFile < 0 {
-					m.currentFile = 0
-				}
+				m.currentFile = max(len(m.groups[m.currentGroup].Files)-1, 0)
 			}
+
+			m.recalculateSelectionStats()
 		}
 	}
 
@@ -312,10 +301,10 @@ func (m DuplicatesModel) renderConfirmationDialog() string {
 
 	content.WriteString(HeaderStyle.Render("⚠️  Confirm Deletion"))
 	content.WriteString("\n\n")
-	content.WriteString(fmt.Sprintf("Are you sure you want to delete %d file(s)?\n\n", len(m.pendingDeletion)))
+	fmt.Fprintf(&content, "Are you sure you want to delete %d file(s)?\n\n", len(m.pendingDeletion))
 
 	for _, file := range m.pendingDeletion {
-		content.WriteString(fmt.Sprintf("  • %s\n", file))
+		fmt.Fprintf(&content, "  • %s\n", file)
 	}
 
 	content.WriteString("\n")
@@ -329,9 +318,9 @@ func (m DuplicatesModel) renderConfirmationDialog() string {
 func (m DuplicatesModel) renderMainView() string {
 	var content strings.Builder
 
-	// Header
-	header := fmt.Sprintf("VideoTagger - Duplicate File Manager (Group %d of %d)",
-		m.currentGroup+1, len(m.groups))
+	// Header with global selection stats
+	header := fmt.Sprintf("VideoTagger - Duplicate File Manager (Group %d of %d) | %d files selected across %d groups",
+		m.currentGroup+1, len(m.groups), m.totalSelectedCount, len(m.groupsWithSelections))
 	content.WriteString(HeaderStyle.Render(header))
 	content.WriteString("\n\n")
 
@@ -355,13 +344,20 @@ func (m DuplicatesModel) renderMainView() string {
 	return content.String()
 }
 
-func (m DuplicatesModel) renderFileList(group DuplicateGroup) string {
+func (m DuplicatesModel) renderFileList(group duplicates.DuplicateGroup) string {
 	var content strings.Builder
 
+	// Extract paths from metadata for optimizePaths
+	paths := make([]string, len(group.Files))
+	for i, file := range group.Files {
+		paths[i] = file.Path
+	}
+
 	// Calculate optimized paths for display
-	optimizedPaths := optimizePaths(group.Files)
+	optimizedPaths := optimizePaths(paths)
 
 	for i, file := range group.Files {
+		// Line 1: Selection indicator and filename
 		var line strings.Builder
 
 		// Selection indicator
@@ -372,7 +368,7 @@ func (m DuplicatesModel) renderFileList(group DuplicateGroup) string {
 		}
 
 		// File path
-		fileName := filepath.Base(file)
+		fileName := filepath.Base(file.Path)
 		displayPath := optimizedPaths[i]
 
 		// Highlight current file
@@ -390,8 +386,46 @@ func (m DuplicatesModel) renderFileList(group DuplicateGroup) string {
 			}
 		}
 
-		line.WriteString(fmt.Sprintf(" (%s)", displayPath))
+		fmt.Fprintf(&line, " (%s)", displayPath)
 		content.WriteString(line.String())
+		content.WriteString("\n")
+
+		// Line 2: Metadata (resolution, duration, size, mod time)
+		var metadata strings.Builder
+		metadata.WriteString("    └─ ")
+
+		// Resolution
+		if file.Resolution != "" {
+			metadata.WriteString(file.Resolution)
+		} else {
+			metadata.WriteString("???")
+		}
+
+		metadata.WriteString(" | ")
+
+		// Duration
+		if file.DurationMins > 0 {
+			fmt.Fprintf(&metadata, "%dmin", file.DurationMins)
+		} else {
+			metadata.WriteString("?min")
+		}
+
+		metadata.WriteString(" | ")
+
+		// File size
+		metadata.WriteString(formatFileSize(file.Size))
+
+		metadata.WriteString(" | ")
+
+		// Modification time (date and time)
+		if file.ModTime != 0 {
+			metadata.WriteString(time.Unix(file.ModTime, 0).Format("2006-01-02 15:04"))
+		} else {
+			metadata.WriteString("unknown date")
+		}
+
+		// Render metadata line with faint style
+		content.WriteString(InfoStyle.Faint(true).Render(metadata.String()))
 		content.WriteString("\n")
 	}
 
@@ -422,7 +456,7 @@ func optimizePaths(paths []string) []string {
 		}
 
 		// Find common prefix
-		for i := 0; i < maxLength; i++ {
+		for i := range maxLength {
 			first := pathComponents[0][i]
 			allMatch := true
 			for j := 1; j < len(pathComponents); j++ {
@@ -480,11 +514,23 @@ func (m DuplicatesModel) renderHelp() string {
 		"  a            Select all files in group",
 		"  c            Clear all selections in group",
 		"",
+		"Auto-Select Strategies (select all EXCEPT the one to keep):",
+		"  1            Keep newest file (by modification time)",
+		"  2            Keep oldest file (by modification time)",
+		"  3            Keep largest file (by size)",
+		"  4            Keep smallest file (by size)",
+		"  5            Keep first file (alphabetically)",
+		"  6            Keep last file (alphabetically)",
+		"  7            Keep first file (in list)",
+		"  8            Keep last file (in list)",
+		"",
 		"Actions:",
 		"  Enter        Delete all selected files from all groups (with confirmation)",
 		"  s            Skip current group",
 		"  h/?          Toggle this help",
 		"  q            Quit",
+		"",
+		fmt.Sprintf("Currently: %d files selected across %d groups", m.totalSelectedCount, len(m.groupsWithSelections)),
 		"",
 	}
 
