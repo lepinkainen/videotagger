@@ -32,7 +32,7 @@ tasks:
       GOOS: linux
       GOARCH: amd64
     cmds:
-      - task: build-go
+      - task: build-go-cross
 
   # CI build without tests/linting (run separately in CI)
   build-only:
@@ -84,13 +84,13 @@ tasks:
     desc: Build Go binary for cross-compilation (uses GOOS/GOARCH from env)
     cmds:
       - mkdir -p {{.BUILDDIR}}
-      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}} main.go
+      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}}-${GOOS}-${GOARCH} main.go
     env:
       CGO_ENABLED: "0"
     sources:
       - ./*.go
     generates:
-      - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
+      - "{{.BUILDDIR}}/{{.EXECUTABLE}}-${GOOS}-${GOARCH}"
 
   test-go:
     desc: Run Go tests
