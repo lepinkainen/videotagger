@@ -149,3 +149,81 @@ func TestExtractHashFromFilename(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractMetadataFromFilename(t *testing.T) {
+	tests := []struct {
+		name             string
+		filename         string
+		expectedRes      string
+		expectedDuration int
+		expectedHash     string
+		expectedOk       bool
+	}{
+		{
+			name:             "Valid processed filename",
+			filename:         "video_[1920x1080][45min][A1B2C3D4].mp4",
+			expectedRes:      "1920x1080",
+			expectedDuration: 45,
+			expectedHash:     "A1B2C3D4",
+			expectedOk:       true,
+		},
+		{
+			name:             "Valid with 4K resolution",
+			filename:         "movie_[3840x2160][120min][DEADBEEF].mkv",
+			expectedRes:      "3840x2160",
+			expectedDuration: 120,
+			expectedHash:     "DEADBEEF",
+			expectedOk:       true,
+		},
+		{
+			name:             "Valid with 720p",
+			filename:         "clip_[1280x720][15min][12345678].avi",
+			expectedRes:      "1280x720",
+			expectedDuration: 15,
+			expectedHash:     "12345678",
+			expectedOk:       true,
+		},
+		{
+			name:             "Not a processed file",
+			filename:         "regular_video.mp4",
+			expectedRes:      "",
+			expectedDuration: 0,
+			expectedHash:     "",
+			expectedOk:       false,
+		},
+		{
+			name:             "Missing resolution bracket",
+			filename:         "video_[45min][A1B2C3D4].mp4",
+			expectedRes:      "",
+			expectedDuration: 0,
+			expectedHash:     "",
+			expectedOk:       false,
+		},
+		{
+			name:             "Invalid format",
+			filename:         "video[1920x1080][45min][A1B2C3D4].mp4",
+			expectedRes:      "",
+			expectedDuration: 0,
+			expectedHash:     "",
+			expectedOk:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, duration, hash, ok := ExtractMetadataFromFilename(tt.filename)
+			if ok != tt.expectedOk {
+				t.Errorf("ExtractMetadataFromFilename(%q) ok = %v, expected %v", tt.filename, ok, tt.expectedOk)
+			}
+			if res != tt.expectedRes {
+				t.Errorf("ExtractMetadataFromFilename(%q) resolution = %q, expected %q", tt.filename, res, tt.expectedRes)
+			}
+			if duration != tt.expectedDuration {
+				t.Errorf("ExtractMetadataFromFilename(%q) duration = %d, expected %d", tt.filename, duration, tt.expectedDuration)
+			}
+			if hash != tt.expectedHash {
+				t.Errorf("ExtractMetadataFromFilename(%q) hash = %q, expected %q", tt.filename, hash, tt.expectedHash)
+			}
+		})
+	}
+}

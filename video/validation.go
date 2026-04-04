@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -51,6 +52,29 @@ func ExtractHashFromFilename(filename string) (string, bool) {
 	// Return the last hash found
 	lastMatch := matches[len(matches)-1]
 	return lastMatch[1], true
+}
+
+// ExtractMetadataFromFilename extracts resolution, duration, and hash from a processed filename
+// Returns resolution (e.g., "1920x1080"), duration in minutes, hash, and whether parsing succeeded
+func ExtractMetadataFromFilename(filename string) (resolution string, durationMins int, hash string, ok bool) {
+	matches := wasProcessedRegex.FindStringSubmatch(filename)
+
+	if len(matches) < 4 {
+		return "", 0, "", false // Not a processed file or no match
+	}
+
+	resolution = matches[1] // e.g., "1920x1080"
+
+	// Parse duration (should always be valid integer based on regex)
+	var err error
+	durationMins, err = strconv.Atoi(matches[2])
+	if err != nil {
+		return "", 0, "", false
+	}
+
+	hash = matches[3] // e.g., "A1B2C3D4"
+
+	return resolution, durationMins, hash, true
 }
 
 // ValidateVideoIntegrity checks if a video file is corrupted or invalid
