@@ -28,11 +28,11 @@ tasks:
   build-linux:
     desc: Build for Linux
     deps: [test, lint]
-    env:
-      GOOS: linux
-      GOARCH: amd64
     cmds:
       - task: build-go-cross
+        vars:
+          TARGET_GOOS: linux
+          TARGET_GOARCH: amd64
 
   # CI build without tests/linting (run separately in CI)
   build-only:
@@ -81,16 +81,18 @@ tasks:
       - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
 
   build-go-cross:
-    desc: Build Go binary for cross-compilation (uses GOOS/GOARCH from env)
+    desc: Build Go binary for cross-compilation
     cmds:
       - mkdir -p {{.BUILDDIR}}
-      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}}-${GOOS}-${GOARCH} main.go
+      - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}}-{{.TARGET_GOOS}}-{{.TARGET_GOARCH}} main.go
     env:
       CGO_ENABLED: "0"
+      GOOS: "{{.TARGET_GOOS}}"
+      GOARCH: "{{.TARGET_GOARCH}}"
     sources:
       - ./*.go
     generates:
-      - "{{.BUILDDIR}}/{{.EXECUTABLE}}-${GOOS}-${GOARCH}"
+      - "{{.BUILDDIR}}/{{.EXECUTABLE}}-{{.TARGET_GOOS}}-{{.TARGET_GOARCH}}"
 
   test-go:
     desc: Run Go tests
