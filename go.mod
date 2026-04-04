@@ -1,6 +1,6 @@
 module github.com/lepinkainen/videotagger
 
-go 1.25
+go 1.26.1
 
 require (
 	github.com/alecthomas/kong v1.12.0
