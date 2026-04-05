@@ -129,8 +129,7 @@ func findUnprocessedFilesWithWalkDir(directory string) ([]string, error) {
 // findUnprocessedFilesWithFd uses the 'fd' command to efficiently find unprocessed video files
 func findUnprocessedFilesWithFd(directory string) ([]string, error) {
 	// Find all video files and filter out processed ones
-	videoExts := []string{"mp4", "webm", "mov", "flv", "mkv", "avi", "wmv", "mpg"}
-	extPattern := "\\." + strings.Join(videoExts, "|\\.")
+	extPattern := "\\." + strings.Join(VideoExtensionsNoDot(), "|\\.")
 
 	cmd := exec.Command("fd", extPattern, "--type", "f", "--case-sensitive", "false", directory)
 	output, err := cmd.Output()

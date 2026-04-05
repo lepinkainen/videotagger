@@ -6,26 +6,31 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 // wasProcessedRegex matches files that have already been processed with metadata
 var wasProcessedRegex = regexp.MustCompile(`_\[(\d+x\d+)\]\[(\d+)min\]\[([a-fA-F0-9]{8})\]\.[^.]*$`)
+var hashInBracketsRegex = regexp.MustCompile(`\[([a-fA-F0-9]{8})\]`)
+
+// videoExtensions is the canonical list of supported video file extensions (with leading dot)
+var videoExtensions = []string{".mp4", ".m4v", ".webm", ".mov", ".flv", ".mkv", ".avi", ".wmv", ".mpg", ".mpeg", ".divx"}
+
+// VideoExtensionsNoDot returns extensions without leading dots (for use with fd, etc.)
+func VideoExtensionsNoDot() []string {
+	exts := make([]string, len(videoExtensions))
+	for i, ext := range videoExtensions {
+		exts[i] = strings.TrimPrefix(ext, ".")
+	}
+	return exts
+}
 
 // IsVideoFile checks if the given file extension is one of known video file extensions
 func IsVideoFile(path string) bool {
-	var desiredExtensions = []string{".mp4", ".m4v", ".webm", ".mov", ".flv", ".mkv", ".avi", ".wmv", ".mpg", ".mpeg", ".divx"}
-
-	ext := filepath.Ext(path)
-	ext = strings.ToLower(ext) // handle cases where extension is upper case
-
-	for _, v := range desiredExtensions {
-		if v == ext {
-			return true
-		}
-	}
-	return false
+	ext := strings.ToLower(filepath.Ext(path))
+	return slices.Contains(videoExtensions, ext)
 }
 
 // IsProcessed checks if a video file has already been processed (has metadata in filename)
@@ -41,9 +46,7 @@ func ExtractHashFromFilename(filename string) (string, bool) {
 		return "", false
 	}
 
-	// Find all 8-character hex strings in brackets: [ABCD1234]
-	hashRegex := regexp.MustCompile(`\[([a-fA-F0-9]{8})\]`)
-	matches := hashRegex.FindAllStringSubmatch(filename, -1)
+	matches := hashInBracketsRegex.FindAllStringSubmatch(filename, -1)
 
 	if len(matches) == 0 {
 		return "", false
