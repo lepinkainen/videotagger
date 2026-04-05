@@ -76,7 +76,7 @@ tasks:
       - mkdir -p {{.BUILDDIR}}
       - go build -v -ldflags="-X main.Version={{.VERSION}}" -o {{.BUILDDIR}}/{{.EXECUTABLE}} main.go
     sources:
-      - ./*.go
+      - ./**/*.go
     generates:
       - "{{.BUILDDIR}}/{{.EXECUTABLE}}"
 
@@ -90,7 +90,7 @@ tasks:
       GOOS: "{{.TARGET_GOOS}}"
       GOARCH: "{{.TARGET_GOARCH}}"
     sources:
-      - ./*.go
+      - ./**/*.go
     generates:
       - "{{.BUILDDIR}}/{{.EXECUTABLE}}-{{.TARGET_GOOS}}-{{.TARGET_GOARCH}}"
 
