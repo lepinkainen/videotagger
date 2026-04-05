@@ -6,6 +6,8 @@ export function ApplyAutoSelect(arg1:number,arg2:number):Promise<main.AppState>;
 
 export function ClearSelectionInGroup(arg1:number):Promise<main.AppState>;
 
+export function ConfirmDeleteSelected(arg1:number):Promise<boolean>;
+
 export function DeleteSelected():Promise<main.AppState>;
 
 export function GetPreview(arg1:string):Promise<main.Preview>;

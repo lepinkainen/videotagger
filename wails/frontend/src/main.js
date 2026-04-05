@@ -270,7 +270,7 @@ async function loadPreview() {
 
 async function runGroupAction(action, ...args) {
   if (!backend) {
-    return;
+    return false;
   }
 
   try {
@@ -278,8 +278,10 @@ async function runGroupAction(action, ...args) {
     applyState(appState);
     await loadPreview();
     renderAll();
+    return true;
   } catch (error) {
     setStatus(String(error), true);
+    return false;
   }
 }
 
@@ -302,14 +304,24 @@ async function deleteSelected() {
     return;
   }
 
-  const confirmed = window.confirm(`Delete ${selectedCount} file(s)? This cannot be undone.`);
+  let confirmed = false;
+  try {
+    confirmed = await backend.ConfirmDeleteSelected(selectedCount);
+  } catch (error) {
+    setStatus(`Could not open confirmation dialog: ${error}`, true);
+    return;
+  }
+
   if (!confirmed) {
+    setStatus('Deletion cancelled.');
     return;
   }
 
   setStatus('Deleting selected files...');
-  await runGroupAction('DeleteSelected');
-  setStatus('Deletion complete.');
+  const ok = await runGroupAction('DeleteSelected');
+  if (ok) {
+    setStatus('Deletion complete.');
+  }
 }
 
 function bindEvents() {

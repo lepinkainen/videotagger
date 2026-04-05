@@ -10,6 +10,10 @@ export function ClearSelectionInGroup(arg1) {
   return window['go']['main']['App']['ClearSelectionInGroup'](arg1);
 }
 
+export function ConfirmDeleteSelected(arg1) {
+  return window['go']['main']['App']['ConfirmDeleteSelected'](arg1);
+}
+
 export function DeleteSelected() {
   return window['go']['main']['App']['DeleteSelected']();
 }

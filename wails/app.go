@@ -65,6 +65,30 @@ func (a *App) SelectDirectory() (string, error) {
 	})
 }
 
+// ConfirmDeleteSelected asks the user to confirm file deletion using a native dialog.
+func (a *App) ConfirmDeleteSelected(count int) (bool, error) {
+	if a.ctx == nil {
+		return false, fmt.Errorf("app context not ready")
+	}
+	if count <= 0 {
+		return false, nil
+	}
+
+	result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:          runtime.QuestionDialog,
+		Title:         "Confirm deletion",
+		Message:       fmt.Sprintf("Delete %d selected file(s)? This cannot be undone.", count),
+		Buttons:       []string{"Cancel", "Delete"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return result == "Delete", nil
+}
+
 // ScanDirectory finds duplicates in the provided directory.
 func (a *App) ScanDirectory(directory string) (AppState, error) {
 	directory = strings.TrimSpace(directory)
