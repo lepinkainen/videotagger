@@ -20,6 +20,9 @@ func TestIsVideoFile(t *testing.T) {
 		{"AVI", "test.avi", true},
 		{"WMV", "test.wmv", true},
 		{"MPG", "test.mpg", true},
+		{"M4V", "test.m4v", true},
+		{"MPEG", "test.mpeg", true},
+		{"DivX", "test.divx", true},
 
 		// With full path
 		{"Full path MP4", "/path/to/video.mp4", true},

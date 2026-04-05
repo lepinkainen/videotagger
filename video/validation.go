@@ -15,7 +15,7 @@ var wasProcessedRegex = regexp.MustCompile(`_\[(\d+x\d+)\]\[(\d+)min\]\[([a-fA-F
 
 // IsVideoFile checks if the given file extension is one of known video file extensions
 func IsVideoFile(path string) bool {
-	var desiredExtensions = []string{".mp4", ".webm", ".mov", ".flv", ".mkv", ".avi", ".wmv", ".mpg"}
+	var desiredExtensions = []string{".mp4", ".m4v", ".webm", ".mov", ".flv", ".mkv", ".avi", ".wmv", ".mpg", ".mpeg", ".divx"}
 
 	ext := filepath.Ext(path)
 	ext = strings.ToLower(ext) // handle cases where extension is upper case
